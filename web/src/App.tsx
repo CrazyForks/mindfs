@@ -19,6 +19,15 @@ import {
 } from "./services/session";
 import { buildClientContext } from "./services/context";
 import { e2eeService, type E2EEState } from "./services/e2ee";
+import {
+  bootstrapService,
+  type BootstrapState,
+  type RelayStatusPayload,
+} from "./services/bootstrap";
+import {
+  ProtectedAPIError,
+  protectedJSON as apiProtectedJSON,
+} from "./services/api";
 import { reportError } from "./services/error";
 import {
   fetchFile,
@@ -272,18 +281,6 @@ type LocalDirsPayload = {
   path?: string;
   parent?: string;
   items?: LocalDirItemPayload[];
-};
-type RelayStatusPayload = {
-  relay_bound?: boolean;
-  no_relayer?: boolean;
-  pending_code?: string;
-  node_name?: string;
-  node_id?: string;
-  e2ee_node_id?: string;
-  relay_base_url?: string;
-  node_url?: string;
-  last_error?: string;
-  e2ee_required?: boolean;
 };
 const RELAY_LAST_NODE_ID_STORAGE_KEY = "mindfs.relay.last_node_id";
 const PLUGIN_QUERY_STORAGE_PREFIX = "vp-progress:";
@@ -851,6 +848,7 @@ export function App({ onGoHome }: AppProps) {
   const pluginsLoadedByRootRef = useRef<Record<string, boolean>>({});
   const pluginsLoadingByRootRef = useRef<Record<string, Promise<void>>>({});
   const didInitRef = useRef(false);
+  const managedRootsRequestRef = useRef<Promise<ManagedRootPayload[] | null> | null>(null);
   const handleSelectSessionRef = useRef<
     ((session: any) => Promise<void>) | null
   >(null);
@@ -935,6 +933,9 @@ export function App({ onGoHome }: AppProps) {
   });
   const [relayStatus, setRelayStatus] = useState<RelayStatusPayload | null>(
     null,
+  );
+  const [bootstrapState, setBootstrapState] = useState<BootstrapState>(() =>
+    bootstrapService.snapshot(),
   );
   const [e2eeState, setE2eeState] = useState<E2EEState>(() =>
     e2eeService.snapshot(),
@@ -1133,6 +1134,9 @@ export function App({ onGoHome }: AppProps) {
   }, [currentRootId]);
   useEffect(() => {
     let cancelled = false;
+    if (!e2eeState.configured || (e2eeState.required && !e2eeState.unlocked)) {
+      return;
+    }
     fetchAgents(true)
       .then((items) => {
         if (cancelled) return;
@@ -1142,7 +1146,7 @@ export function App({ onGoHome }: AppProps) {
     return () => {
       cancelled = true;
     };
-  }, [agentsVersion]);
+  }, [agentsVersion, e2eeState.configured, e2eeState.required, e2eeState.unlocked]);
   useEffect(() => {
     if (!importMenuOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
@@ -2215,14 +2219,9 @@ export function App({ onGoHome }: AppProps) {
   const refreshTreeDir = useCallback(
     async (rootID: string, dirPath: string, syncMain: boolean) => {
       try {
-        const res = await fetch(
-          appURL(
-            "/api/tree",
-            new URLSearchParams({ root: rootID, dir: dirPath }),
-          ),
+        const payload = await apiProtectedJSON<any>(
+          appURL("/api/tree", new URLSearchParams({ root: rootID, dir: dirPath })),
         );
-        if (!res.ok) return;
-        const payload = await res.json();
         const parsed = normalizeTreeResponse(payload);
         invalidTreeCacheKeysRef.current.delete(treeCacheKey(rootID, dirPath));
         setMainDirectoryError("");
@@ -3560,14 +3559,12 @@ export function App({ onGoHome }: AppProps) {
               continue;
             }
             try {
-              const res = await fetch(
+              const payload = await apiProtectedJSON<any>(
                 appURL(
                   "/api/tree",
                   new URLSearchParams({ root: String(root), dir }),
                 ),
               );
-              if (!res.ok) continue;
-              const payload = await res.json();
               const parsed = normalizeTreeResponse(payload);
               invalidTreeCacheKeysRef.current.delete(cacheKey);
               setEntriesByPath((prev) => ({
@@ -3735,32 +3732,9 @@ export function App({ onGoHome }: AppProps) {
             return;
           }
           try {
-            const res = await fetch(
+            const payload = await apiProtectedJSON<any>(
               appURL("/api/tree", new URLSearchParams({ root, dir: apiDir })),
             );
-            if (!res.ok) {
-              const payload = await res.json().catch(() => ({}));
-              if (
-                await handleRelayNavigationFailure(
-                  res.status,
-                  typeof payload?.error === "string" ? payload.error : "",
-                )
-              ) {
-                return;
-              }
-              const message = formatDirectoryLoadError(
-                typeof payload?.error === "string" ? payload.error : "",
-              );
-              setSelectedDir(targetPath);
-              setSelectedDirKey(
-                buildDirectorySelectionKey(root, targetPath, targetIsRoot),
-              );
-              setMainEntries([]);
-              setMainDirectoryError(message);
-              reportError("file.read_failed", message);
-              return;
-            }
-            const payload = await res.json();
             const parsed = normalizeTreeResponse(payload);
             invalidTreeCacheKeysRef.current.delete(cacheKey);
             setMainDirectoryError("");
@@ -3779,7 +3753,28 @@ export function App({ onGoHome }: AppProps) {
             fileCursorRef.current = 0;
             setDrawerOpenForRoot(root, false);
             if (isMobile) setIsLeftOpen(false);
-          } catch {
+          } catch (error) {
+            if (error instanceof ProtectedAPIError) {
+              if (
+                await handleRelayNavigationFailure(
+                  error.status,
+                  typeof error.payload?.error === "string" ? error.payload.error : "",
+                )
+              ) {
+                return;
+              }
+              const message = formatDirectoryLoadError(
+                typeof error.payload?.error === "string" ? error.payload.error : "",
+              );
+              setSelectedDir(targetPath);
+              setSelectedDirKey(
+                buildDirectorySelectionKey(root, targetPath, targetIsRoot),
+              );
+              setMainEntries([]);
+              setMainDirectoryError(message);
+              reportError("file.read_failed", message);
+              return;
+            }
             const message = "目录加载失败，请稍后重试。";
             setSelectedDir(targetPath);
             setSelectedDirKey(
@@ -3843,21 +3838,43 @@ export function App({ onGoHome }: AppProps) {
     actionHandlersRef.current = actionHandlers;
   }, [actionHandlers]);
 
-  const refreshManagedRoots = useCallback(async () => {
-    const response = await fetch(appPath("/api/dirs"));
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      if (
-        await handleRelayNavigationFailure(
-          response.status,
-          typeof payload?.error === "string" ? payload.error : "",
-        )
-      ) {
-        return;
+  const loadManagedRootPayloads = useCallback(async () => {
+    if (bootstrapService.snapshot().phase !== "ready") {
+      return null;
+    }
+    if (managedRootsRequestRef.current) {
+      return managedRootsRequestRef.current;
+    }
+    const request = (async () => {
+      try {
+        const dirs = await apiProtectedJSON<ManagedRootPayload[]>(appPath("/api/dirs"));
+        return Array.isArray(dirs) ? dirs : [];
+      } catch (error) {
+        if (!(error instanceof ProtectedAPIError)) {
+          return null;
+        }
+        if (
+          await handleRelayNavigationFailure(
+            error.status,
+            typeof error.payload?.error === "string" ? error.payload.error : "",
+          )
+        ) {
+          return null;
+        }
+        return null;
       }
+    })().finally(() => {
+      managedRootsRequestRef.current = null;
+    });
+    managedRootsRequestRef.current = request;
+    return request;
+  }, [bootstrapState.phase, handleRelayNavigationFailure]);
+
+  const refreshManagedRoots = useCallback(async () => {
+    const dirs = await loadManagedRootPayloads();
+    if (!dirs) {
       return;
     }
-    const dirs = (await response.json()) as ManagedRootPayload[];
     const nextDirs = Array.isArray(dirs) ? dirs : [];
     const nextRootIds = nextDirs.map((dir) => dir.id).filter(Boolean);
     managedRootByIdRef.current = Object.fromEntries(
@@ -3911,20 +3928,10 @@ export function App({ onGoHome }: AppProps) {
       preservePluginQuery: true,
       isRoot: true,
     });
-  }, [handleRelayNavigationFailure, replaceURLState]);
+  }, [loadManagedRootPayloads, replaceURLState]);
 
   const refreshRelayStatus = useCallback(async () => {
-    try {
-      const response = await fetch(appPath("/api/relay/status"));
-      if (!response.ok) {
-        return;
-      }
-      const payload = (await response.json()) as RelayStatusPayload;
-      setRelayStatus(payload);
-      return payload;
-    } catch {
-      return;
-    }
+    return bootstrapService.refreshRelayStatus();
   }, []);
 
   const handleCreateRootStart = useCallback((parentPath?: string | null) => {
@@ -3986,13 +3993,9 @@ export function App({ onGoHome }: AppProps) {
       selectedPath: "",
     }));
     try {
-      const response = await fetch(
+      const payload = await apiProtectedJSON<LocalDirsPayload>(
         appURL("/api/local_dirs", new URLSearchParams({ path: trimmed })),
       );
-      const payload = (await response.json().catch(() => ({}))) as LocalDirsPayload;
-      if (!response.ok) {
-        throw new Error(String((payload as any)?.message || (payload as any)?.error || "加载目录失败"));
-      }
       setLocalDirState({
         path: String(payload.path || trimmed),
         parent: String(payload.parent || ""),
@@ -4094,17 +4097,11 @@ export function App({ onGoHome }: AppProps) {
         creatingRootParentPath && creatingRootParentPath.trim()
           ? `${creatingRootParentPath.replace(/[\\/]+$/, "")}/${name}`
           : name;
-      const response = await fetch(appPath("/api/dirs"), {
+      const payload = await apiProtectedJSON<any>(appPath("/api/dirs"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: targetPath, create: true }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.message || payload?.error || "新建项目失败"),
-        );
-      }
       const created = payload as ManagedRootPayload;
       setCreatingRootName(null);
       setCreatingRootParentPath(null);
@@ -4169,17 +4166,11 @@ export function App({ onGoHome }: AppProps) {
     }
     setLocalDirState((prev) => ({ ...prev, adding: true, error: "" }));
     try {
-      const response = await fetch(appPath("/api/dirs"), {
+      const payload = await apiProtectedJSON<any>(appPath("/api/dirs"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path, create: false }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.message || payload?.error || "添加目录失败"),
-        );
-      }
       setLocalDirState((prev) => ({
         ...prev,
         adding: false,
@@ -4226,17 +4217,11 @@ export function App({ onGoHome }: AppProps) {
       message: "",
     }));
     try {
-      const response = await fetch(appPath("/api/imports/github"), {
+      const payload = await apiProtectedJSON<any>(appPath("/api/imports/github"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, parent_path: parentPath }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.message || payload?.error || "GitHub 导入失败"),
-        );
-      }
       setGitHubImportState((prev) => ({
         ...prev,
         taskId: String(payload?.task_id || ""),
@@ -4315,18 +4300,12 @@ export function App({ onGoHome }: AppProps) {
       return;
     }
     try {
-      const response = await fetch(
+      await apiProtectedJSON<any>(
         appURL("/api/dirs", new URLSearchParams({ path: rootPath })),
         {
           method: "DELETE",
         },
       );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          String(payload?.message || payload?.error || "移除项目失败"),
-        );
-      }
       await refreshManagedRoots();
     } catch (err) {
       reportError(
@@ -5561,27 +5540,17 @@ export function App({ onGoHome }: AppProps) {
         return;
       }
     }
-    fetch(appPath("/api/dirs"))
-      .then(async (r) => {
-        if (!r.ok) {
-          const payload = await r.json().catch(() => ({}));
-          if (
-            await handleRelayNavigationFailure(
-              r.status,
-              typeof payload?.error === "string" ? payload.error : "",
-            )
-          ) {
-            return null;
-          }
-          return null;
+    void (async () => {
+      try {
+        const bootstrap = await bootstrapService.start();
+        if (bootstrap.phase !== "ready") {
+          didInitRef.current = false;
+          return;
         }
-        return r.json();
-      })
-      .then(async (dirs) => {
+        const dirs = await loadManagedRootPayloads();
         if (!dirs) {
           return;
         }
-        void refreshRelayStatus();
         if (cancelled || !dirs.length) {
           return;
         }
@@ -5638,8 +5607,7 @@ export function App({ onGoHome }: AppProps) {
             await refreshTreeDir(preferredRoot, ".", false);
           }
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (cancelled) {
           return;
         }
@@ -5647,11 +5615,10 @@ export function App({ onGoHome }: AppProps) {
           "app.init_failed",
           String((err as Error)?.message || err || "初始化失败"),
         );
-      })
-      .finally(() => {
+      } finally {
         settled = true;
-      })
-    ;
+      }
+    })();
     return () => {
       cancelled = true;
       if (!settled) {
@@ -5661,11 +5628,20 @@ export function App({ onGoHome }: AppProps) {
   }, [
     ensurePluginsLoaded,
     handleRelayNavigationFailure,
+    loadManagedRootPayloads,
     loadSessionsForRoot,
-    refreshRelayStatus,
     refreshTreeDir,
     tryShowBoundSessionForRoot,
+    bootstrapState.phase,
   ]);
+
+  useEffect(() => {
+    return bootstrapService.subscribe((state) => {
+      setBootstrapState(state);
+      setRelayStatus(state.relayStatus);
+      setE2eeState(state.e2ee);
+    });
+  }, []);
 
   useEffect(() => {
     return e2eeService.subscribe((state) => {
@@ -5674,17 +5650,18 @@ export function App({ onGoHome }: AppProps) {
   }, []);
 
   useEffect(() => {
-    const nodeId = String(relayStatus?.e2ee_node_id || relayStatus?.node_id || "").trim();
-    const required = relayStatus?.e2ee_required === true;
-    e2eeService.configure(required, nodeId);
-  }, [relayStatus?.e2ee_required, relayStatus?.e2ee_node_id, relayStatus?.node_id]);
-
-  useEffect(() => {
     if (!e2eeState.required) {
       setE2eeSecretInput("");
       setE2eePromptError("");
     }
   }, [e2eeState.required, e2eeState.secretPresent]);
+
+  useEffect(() => {
+    if (bootstrapState.phase !== "ready") {
+      return;
+    }
+    setAgentsVersion((v) => v + 1);
+  }, [bootstrapState.phase]);
 
   const describeE2EEPromptError = useCallback((err: unknown) => {
     const code = err instanceof Error ? String(err.message || "").trim() : "";
@@ -5715,15 +5692,10 @@ export function App({ onGoHome }: AppProps) {
     setE2eePromptBusy(true);
     setE2eePromptError("");
     try {
-      e2eeService.setSecret(trimmed);
-      await e2eeService.ensureSession();
+      await bootstrapService.submitPairingSecret(trimmed);
+      didInitRef.current = false;
       setE2eeSecretInput("");
     } catch (err) {
-      if (err instanceof Error && err.message === "e2ee_proof_invalid") {
-        e2eeService.clearSecret();
-      } else {
-        e2eeService.clearSession();
-      }
       setE2eePromptError(describeE2EEPromptError(err));
     } finally {
       setE2eePromptBusy(false);
@@ -7020,7 +6992,7 @@ export function App({ onGoHome }: AppProps) {
           </BottomSheet>
         }
       />
-      {e2eeState.required && !e2eeState.secretPresent ? (
+      {e2eeState.required && !e2eeState.unlocked ? (
         <div
           style={{
             position: "fixed",

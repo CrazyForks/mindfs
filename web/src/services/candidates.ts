@@ -1,4 +1,5 @@
 import { appURL } from "./base";
+import { protectedJSON } from "./api";
 
 export type CandidateType = "file" | "skill" | "prompt";
 export type CandidateItemType = CandidateType | "slash_command";
@@ -25,12 +26,8 @@ export async function fetchCandidates(params: {
   if (params.type === "skill" && params.agent) {
     search.set("agent", params.agent);
   }
-  const response = await fetch(appURL("/api/candidates", search), {
+  const data = await protectedJSON<any[]>(appURL("/api/candidates", search), {
     signal: params.signal,
   });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch candidates: ${response.status}`);
-  }
-  const data = await response.json();
   return Array.isArray(data) ? data : [];
 }

@@ -7,6 +7,7 @@ export const PROOF_HEADER = "X-MindFS-Proof";
 export const TS_HEADER = "X-MindFS-TS";
 
 type E2EEState = {
+  configured: boolean;
   required: boolean;
   nodeId: string;
   secretPresent: boolean;
@@ -33,6 +34,7 @@ type SessionContext = {
 };
 
 class E2EEService {
+  private configured = false;
   private required = false;
   private nodeId = "";
   private clientId = "";
@@ -51,7 +53,8 @@ class E2EEService {
   configure(required: boolean, nodeId: string) {
     const nextRequired = required === true;
     const nextNodeId = String(nodeId || "").trim();
-    const changed = this.required !== nextRequired || this.nodeId !== nextNodeId;
+    const changed = !this.configured || this.required !== nextRequired || this.nodeId !== nextNodeId;
+    this.configured = true;
     this.required = nextRequired;
     if (this.nodeId !== nextNodeId) {
       this.nodeId = nextNodeId;
@@ -76,6 +79,7 @@ class E2EEService {
 
   snapshot(): E2EEState {
     return {
+      configured: this.configured,
       required: this.required,
       nodeId: this.nodeId,
       secretPresent: this.hasSecret(),
@@ -216,6 +220,46 @@ class E2EEService {
       return response.json() as Promise<T>;
     }
     return this.decodeProtectedJSON<T>(await response.text());
+  }
+
+  async protectedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    if (!this.required) {
+      return fetch(input, init);
+    }
+    const buildInit = async (): Promise<RequestInit> => {
+      const session = await this.ensureSession();
+      if (!session) {
+        throw new Error("e2ee_required");
+      }
+      const method = String(init.method || "GET").toUpperCase();
+      const headers = this.sessionProtectedHeaders(init.headers);
+      const next: RequestInit = { ...init, method, headers };
+      if (init.body !== undefined && init.body !== null && method !== "GET" && method !== "HEAD") {
+        const plaintext = protectedBodyText(init.body);
+        const envelope = await encryptBytes(session.transportKey, new TextEncoder().encode(plaintext));
+        next.body = JSON.stringify(envelope);
+        headers.set("Content-Type", "application/json");
+      }
+      return next;
+    };
+
+    let response = await fetch(input, await buildInit());
+    if (response.status === 401) {
+      const payload = (await response.clone().json().catch(() => ({}))) as { error?: string };
+      if (this.handleServerError(String(payload.error || ""))) {
+        response = await fetch(input, await buildInit());
+      }
+    }
+    return response;
+  }
+
+  async protectedJSON<T>(input: RequestInfo | URL, init: RequestInit = {}): Promise<T> {
+    const response = await this.protectedFetch(input, init);
+    if (!response.ok) {
+      const payload = await this.parseProtectedJSONResponse<{ error?: string; message?: string }>(response.clone()).catch(() => ({}));
+      throw new Error(String(payload.message || payload.error || `request failed: ${response.status}`));
+    }
+    return this.parseProtectedJSONResponse<T>(response);
   }
 
   isRequired(): boolean {
@@ -477,6 +521,16 @@ function canonicalProofPath(path: string): string {
   const target = new URL(raw, typeof window !== "undefined" ? window.location.origin : "http://localhost");
   const pathname = target.pathname.replace(/^\/n\/[^/]+/, "") || "/";
   return target.search ? `${pathname}${target.search}` : pathname;
+}
+
+function protectedBodyText(body: BodyInit): string {
+  if (typeof body === "string") {
+    return body;
+  }
+  if (body instanceof URLSearchParams) {
+    return body.toString();
+  }
+  throw new Error("e2ee_unsupported_body");
 }
 
 export const e2eeService = new E2EEService();

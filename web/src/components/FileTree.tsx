@@ -9,6 +9,8 @@ import {
   sortDirectoryEntries,
 } from "../services/directorySort";
 import { appPath } from "../services/base";
+import { protectedJSON } from "../services/api";
+import { bootstrapService } from "../services/bootstrap";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -174,6 +176,9 @@ export function FileTree({
   const [isInstalled, setIsInstalled] = React.useState(false);
   const [isInstallCapable, setIsInstallCapable] = React.useState(false);
   const [relayTips, setRelayTips] = React.useState<RelayTip[]>([]);
+  const [protectedAPIReady, setProtectedAPIReady] = React.useState(() =>
+    bootstrapService.canUseProtectedAPI(),
+  );
   const [activeRelayTipIndex, setActiveRelayTipIndex] = React.useState(0);
   const [dismissedRelayTipIds, setDismissedRelayTipIds] = React.useState<string[]>(() => {
     if (typeof window === "undefined") {
@@ -476,16 +481,22 @@ export function FileTree({
   }, [creatingRootName]);
 
   React.useEffect(() => {
+    return bootstrapService.subscribe(() => {
+      setProtectedAPIReady(bootstrapService.canUseProtectedAPI());
+    });
+  }, []);
+
+  React.useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
 
     const loadRelayTip = async () => {
+      if (!protectedAPIReady) {
+        setRelayTips([]);
+        return;
+      }
       try {
-        const response = await fetch(appPath("/api/relay/tips"), { signal: controller.signal });
-        if (!response.ok) {
-          throw new Error(`tips request failed: ${response.status}`);
-        }
-        const payload = (await response.json()) as RelayTip | RelayTip[] | null;
+        const payload = await protectedJSON<RelayTip | RelayTip[] | null>(appPath("/api/relay/tips"), { signal: controller.signal });
         if (!cancelled) {
           const nextTips = Array.isArray(payload)
             ? payload.filter((tip): tip is RelayTip => Boolean(tip?.id && tip?.title))
@@ -506,7 +517,7 @@ export function FileTree({
       cancelled = true;
       controller.abort();
     };
-  }, []);
+  }, [protectedAPIReady]);
 
   React.useEffect(() => {
     if (!isUpdateNotesOpen || typeof document === "undefined") {

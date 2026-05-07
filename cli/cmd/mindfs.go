@@ -515,6 +515,7 @@ func addManagedDir(addr string, useTLS bool, path string) (managedDirResponse, e
 		return managedDirResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-MindFS-Local-CLI", "1")
 	client := newHTTPClient(useTLS, 3*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -541,6 +542,7 @@ func removeManagedDir(addr string, useTLS bool, path string) error {
 	if err != nil {
 		return err
 	}
+	req.Header.Set("X-MindFS-Local-CLI", "1")
 	client := newHTTPClient(useTLS, 3*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {

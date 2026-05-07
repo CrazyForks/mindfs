@@ -1,4 +1,5 @@
 import { appURL, wsURL } from "./base";
+import { protectedFetch, protectedJSON } from "./api";
 import { e2eeService } from "./e2ee";
 
 // Session service for managing agent sessions
@@ -678,11 +679,7 @@ class SessionService {
       if (options?.afterTime) {
         params.set("after_time", options.afterTime);
       }
-      const res = await fetch(appURL("/api/sessions", params));
-      if (!res.ok) {
-        throw new Error("Failed to fetch sessions");
-      }
-      const data = await res.json();
+      const data = await protectedJSON<any[]>(appURL("/api/sessions", params));
       return Array.isArray(data) ? data : [];
     } catch (err) {
       console.error("[Session] Failed to fetch sessions:", err);
@@ -704,11 +701,7 @@ class SessionService {
       if (typeof limit === "number" && limit > 0) {
         params.set("limit", String(limit));
       }
-      const res = await fetch(appURL("/api/sessions/search", params));
-      if (!res.ok) {
-        throw new Error("Failed to search sessions");
-      }
-      const data = await res.json();
+      const data = await protectedJSON<any>(appURL("/api/sessions/search", params));
       return Array.isArray(data?.items)
         ? (data.items as SessionSearchHit[])
         : [];
@@ -728,34 +721,9 @@ class SessionService {
       if (typeof seq === "number" && seq > 0) {
         params.set("seq", String(seq));
       }
-      if (e2eeService.isRequired()) {
-        if (!(await e2eeService.ensureSession())) {
-          return null;
-        }
-      }
-      const headers = e2eeService.isRequired()
-        ? e2eeService.sessionProtectedHeaders()
-        : undefined;
-      const res = await fetch(
+      const data = await protectedJSON<Session>(
         appURL(`/api/sessions/${encodeURIComponent(sessionKey)}`, params),
-        {
-          headers,
-        },
       );
-      if (!res.ok) {
-        if (res.status === 401 && e2eeService.isRequired()) {
-          const payload = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          if (e2eeService.handleServerError(String(payload.error || ""))) {
-            return this.getSession(rootId, sessionKey, seq);
-          }
-        }
-        throw new Error("Failed to get session");
-      }
-      const data = await (e2eeService.isRequired()
-        ? e2eeService.parseProtectedJSONResponse<Session>(res)
-        : res.json());
       return data as Session;
     } catch (err) {
       console.error("[Session] Failed to get session:", err);
@@ -771,16 +739,12 @@ class SessionService {
       const params = new URLSearchParams({
         root: rootId,
       });
-      const res = await fetch(
+      const data = await protectedJSON<any[]>(
         appURL(
           `/api/sessions/${encodeURIComponent(sessionKey)}/related-files`,
           params,
         ),
       );
-      if (!res.ok) {
-        throw new Error("Failed to get session related files");
-      }
-      const data = await res.json();
       return Array.isArray(data) ? (data as RelatedFile[]) : [];
     } catch (err) {
       console.error("[Session] Failed to get session related files:", err);
@@ -795,7 +759,7 @@ class SessionService {
   ): Promise<boolean> {
     try {
       const params = new URLSearchParams({ root: rootId, path });
-      const res = await fetch(
+      const res = await protectedFetch(
         appURL(
           `/api/sessions/${encodeURIComponent(sessionKey)}/related-files`,
           params,
@@ -815,7 +779,7 @@ class SessionService {
   async deleteSession(rootId: string, sessionKey: string): Promise<boolean> {
     try {
       const params = new URLSearchParams({ root: rootId });
-      const res = await fetch(
+      const res = await protectedFetch(
         appURL(`/api/sessions/${encodeURIComponent(sessionKey)}`, params),
         { method: "DELETE" },
       );
@@ -836,7 +800,7 @@ class SessionService {
   ): Promise<Session | null> {
     try {
       const params = new URLSearchParams({ root: rootId });
-      const res = await fetch(
+      const data = await protectedJSON<Session>(
         appURL(
           `/api/sessions/${encodeURIComponent(sessionKey)}/rename`,
           params,
@@ -849,10 +813,6 @@ class SessionService {
           body: JSON.stringify({ name }),
         },
       );
-      if (!res.ok) {
-        throw new Error("Failed to rename session");
-      }
-      const data = await res.json();
       return data as Session;
     } catch (err) {
       console.error("[Session] Failed to rename session:", err);
@@ -882,11 +842,7 @@ class SessionService {
       if (typeof options?.limit === "number" && options.limit > 0) {
         params.set("limit", String(options.limit));
       }
-      const res = await fetch(appURL("/api/sessions/external", params));
-      if (!res.ok) {
-        throw new Error("Failed to fetch external sessions");
-      }
-      const data = await res.json();
+      const data = await protectedJSON<any[]>(appURL("/api/sessions/external", params));
       return Array.isArray(data) ? data : [];
     } catch (err) {
       console.error("[Session] Failed to fetch external sessions:", err);
@@ -900,7 +856,7 @@ class SessionService {
     agentSessionId: string,
   ): Promise<{ session_key: string } | null> {
     try {
-      const res = await fetch(appURL("/api/sessions/import"), {
+      return await protectedJSON<{ session_key: string }>(appURL("/api/sessions/import"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -911,10 +867,6 @@ class SessionService {
           agent_session_id: agentSessionId,
         }),
       });
-      if (!res.ok) {
-        throw new Error("Failed to import external session");
-      }
-      return await res.json();
     } catch (err) {
       console.error("[Session] Failed to import external session:", err);
       return null;

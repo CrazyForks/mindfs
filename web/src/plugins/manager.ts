@@ -1,5 +1,6 @@
 import { fetchFile } from "../services/file";
 import { appURL } from "../services/base";
+import { protectedJSON } from "../services/api";
 
 export type MatchRule = {
   ext?: string;
@@ -200,18 +201,14 @@ export async function loadPlugin(code: string): Promise<ViewPlugin> {
 }
 
 export async function loadAllPlugins(rootId: string): Promise<ViewPlugin[]> {
-  let treeResp: Response;
+  let treePayload: any;
   try {
-    treeResp = await fetch(
+    treePayload = await protectedJSON<any>(
       appURL("/api/tree", new URLSearchParams({ root: rootId, dir: ".mindfs/plugins" })),
     );
   } catch {
     return [];
   }
-  if (!treeResp.ok) {
-    return [];
-  }
-  const treePayload = await treeResp.json();
   const entries = Array.isArray(treePayload?.entries) ? treePayload.entries : [];
   const pluginFiles = entries.filter(
     (entry: any) =>

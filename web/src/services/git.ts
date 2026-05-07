@@ -1,4 +1,5 @@
 import { appURL } from "./base";
+import { protectedJSON } from "./api";
 import { getCachedGitDiff, setCachedGitDiff, type CachedGitDiffPayload } from "./file";
 
 export type GitStatusCode = "M" | "A" | "D" | "R" | "??";
@@ -29,11 +30,7 @@ export type GitDiffPayload = CachedGitDiffPayload & {
 };
 
 export async function fetchGitStatus(rootId: string): Promise<GitStatusPayload> {
-  const response = await fetch(appURL("/api/git/status", new URLSearchParams({ root: rootId })));
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(String(payload?.message || payload?.error || `Failed to fetch git status: status=${response.status}`));
-  }
+  const payload = await protectedJSON<any>(appURL("/api/git/status", new URLSearchParams({ root: rootId })));
   return {
     available: payload?.available === true,
     branch: typeof payload?.branch === "string" ? payload.branch : undefined,
@@ -65,11 +62,7 @@ export async function fetchGitDiff(
     return cached as GitDiffPayload;
   }
 
-  const response = await fetch(appURL("/api/git/diff", new URLSearchParams({ root: rootId, path })));
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(String(payload?.message || payload?.error || `Failed to fetch git diff: status=${response.status}`));
-  }
+  const payload = await protectedJSON<any>(appURL("/api/git/diff", new URLSearchParams({ root: rootId, path })));
   const diff = {
     path: typeof payload?.path === "string" ? payload.path : path,
     status: typeof payload?.status === "string" ? payload.status : "M",

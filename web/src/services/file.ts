@@ -579,7 +579,7 @@ export async function fetchFile(params: FetchFileParams): Promise<FilePayload | 
       if (!retry.ok) {
         throw new Error(`open file failed after 304 retry: status=${retry.status}`);
       }
-      const retryPayload = (await retry.json()) as FileResponse;
+      const retryPayload = await e2eeService.parseProtectedJSONResponse<FileResponse>(retry);
       const retryFile = await unwrapFileResponse(retryPayload);
       if (!retryFile) {
         return null;
@@ -598,7 +598,7 @@ export async function fetchFile(params: FetchFileParams): Promise<FilePayload | 
       throw new Error(`open file failed: status=${response.status}`);
     }
 
-    const payload = (await response.json()) as FileResponse;
+    const payload = await e2eeService.parseProtectedJSONResponse<FileResponse>(response);
     const file = await unwrapFileResponse(payload);
     if (!file) {
       return null;

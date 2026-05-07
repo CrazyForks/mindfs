@@ -1,4 +1,5 @@
 import { appPath } from "./base";
+import { protectedAPIReady, protectedJSON } from "./api";
 
 // Agent status service
 
@@ -77,6 +78,7 @@ function normalizeAgentStatus(input: unknown): AgentStatus | null {
 
 let cachedAgents: AgentStatus[] = [];
 let lastFetch = 0;
+let inFlightAgents: Promise<AgentStatus[]> | null = null;
 const CACHE_TTL = 30000; // 30 seconds
 
 export async function fetchAgents(force = false): Promise<AgentStatus[]> {
@@ -84,20 +86,27 @@ export async function fetchAgents(force = false): Promise<AgentStatus[]> {
   if (!force && cachedAgents.length > 0 && now - lastFetch < CACHE_TTL) {
     return cachedAgents;
   }
+  if (inFlightAgents) {
+    return inFlightAgents;
+  }
+  if (!protectedAPIReady()) {
+    return cachedAgents;
+  }
 
-  try {
-    const res = await fetch(appPath("/api/agents"));
-    if (!res.ok) {
-      throw new Error("Failed to fetch agents");
-    }
-    const data = await res.json();
+  inFlightAgents = (async () => {
+    const data = await protectedJSON<any[]>(appPath("/api/agents"));
     cachedAgents = Array.isArray(data)
       ? data.map(normalizeAgentStatus).filter((item): item is AgentStatus => item !== null)
       : [];
     lastFetch = now;
     return cachedAgents;
+  })();
+  try {
+    return await inFlightAgents;
   } catch (err) {
     console.error("Failed to fetch agents:", err);
     return cachedAgents;
+  } finally {
+    inFlightAgents = null;
   }
 }
