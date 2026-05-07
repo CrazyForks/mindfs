@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	htmpl "html/template"
 	"io"
 	"log"
 	"mime"
@@ -753,7 +754,7 @@ func (h *HTTPHandler) handleFrontend(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(rewriteRelayedFrontendContent(indexHTML)))
 		return
 	}
-	w.Write([]byte(indexHTML))
+	w.Write([]byte(renderFallbackFrontend(indexHTML, frontendAssetMissingNotice(r.URL.Path))))
 }
 
 func (h *HTTPHandler) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -781,7 +782,8 @@ func (h *HTTPHandler) serveStaticAsset(w http.ResponseWriter, r *http.Request) b
 	}
 
 	assetPath := filepath.Join(staticDir, cleanPath)
-	if info, err := os.Stat(assetPath); err == nil && !info.IsDir() {
+	info, statErr := os.Stat(assetPath)
+	if statErr == nil && !info.IsDir() {
 		applyStaticCacheHeaders(w, cleanPath)
 		if isRelayedRequest(r) && shouldRewriteRelayedStaticAsset(cleanPath) {
 			serveRewrittenStaticAsset(w, r, assetPath)
@@ -804,6 +806,25 @@ func (h *HTTPHandler) serveStaticAsset(w http.ResponseWriter, r *http.Request) b
 	}
 
 	return false
+}
+
+func frontendAssetMissingNotice(requestPath string) string {
+	cleanPath := pathForStaticAsset(requestPath)
+	if cleanPath == "" {
+		cleanPath = "index.html"
+	}
+	displayPath := filepath.ToSlash(cleanPath)
+	return fmt.Sprintf("frontend assets missing: web/%s not found. Please reinstall or check the install directory.", displayPath)
+}
+
+func renderFallbackFrontend(content, notice string) string {
+	out := content
+	noticeHTML := ""
+	if strings.TrimSpace(notice) != "" {
+		noticeHTML = `<div class="notice is-visible">` + htmpl.HTMLEscapeString(notice) + `</div>`
+	}
+	out = strings.ReplaceAll(out, "__FALLBACK_NOTICE__", noticeHTML)
+	return out
 }
 
 func applyStaticCacheHeaders(w http.ResponseWriter, cleanPath string) {
@@ -1315,6 +1336,20 @@ const indexHTML = `<!doctype html>
         background: #f7f7f5;
         color: #222;
       }
+      .notice {
+        display: none;
+        margin: 12px;
+        padding: 10px 12px;
+        border: 1px solid #d8b4b4;
+        border-radius: 6px;
+        background: #fff5f5;
+        color: #8a1f1f;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .notice.is-visible {
+        display: block;
+      }
       .shell {
         display: grid;
         grid-template-columns: 260px 1fr;
@@ -1379,6 +1414,7 @@ const indexHTML = `<!doctype html>
     </style>
   </head>
   <body>
+    __FALLBACK_NOTICE__
     <div class="shell">
       <aside>
         <h3>Files</h3>
