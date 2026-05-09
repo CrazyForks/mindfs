@@ -5,7 +5,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	agenttypes "mindfs/server/internal/agent/types"
 	"mindfs/server/internal/e2ee"
 	"mindfs/server/internal/session"
 
@@ -33,8 +35,12 @@ type PendingUserMessage struct {
 }
 
 type SessionPendingState struct {
+	RootID       string
+	SessionTitle string
 	User         *PendingUserMessage
 	ReplyingList []StreamEvent
+	Summary      string
+	UpdatedAt    time.Time
 }
 
 type ClientStreamStatus string
@@ -52,6 +58,15 @@ type ClientReplayState struct {
 type CompletedSessionState struct {
 	RequestID string
 	Completed time.Time
+}
+
+type ReplyingSessionState struct {
+	RootID       string    `json:"rootId"`
+	SessionKey   string    `json:"sessionKey"`
+	SessionTitle string    `json:"sessionTitle"`
+	Status       string    `json:"status"`
+	Summary      string    `json:"summary"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type replayStep struct {
@@ -258,11 +273,13 @@ func (h *StreamHub) getAllClientIDs() []string {
 	return clientIDs
 }
 
-func (h *StreamHub) SetPendingUser(sessionKey, agent, model, mode, effort, content string) *PendingUserMessage {
+func (h *StreamHub) SetPendingUser(rootID, sessionKey, sessionTitle, agent, model, mode, effort, content string) *PendingUserMessage {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	state := h.ensurePendingSessionLocked(sessionKey)
 	delete(h.completed, sessionKey)
+	state.RootID = rootID
+	state.SessionTitle = strings.TrimSpace(sessionTitle)
 	state.User = &PendingUserMessage{
 		Agent:     agent,
 		Model:     model,
@@ -272,6 +289,8 @@ func (h *StreamHub) SetPendingUser(sessionKey, agent, model, mode, effort, conte
 		Timestamp: time.Now().UTC(),
 	}
 	state.ReplyingList = nil
+	state.Summary = ""
+	state.UpdatedAt = state.User.Timestamp
 	h.clearReplayStatesForSessionLocked(sessionKey)
 	return &PendingUserMessage{
 		Agent:     state.User.Agent,
@@ -298,6 +317,32 @@ func (h *StreamHub) AppendReplyEvent(sessionKey string, event StreamEvent) {
 	defer h.mu.Unlock()
 	state := h.ensurePendingSessionLocked(sessionKey)
 	state.ReplyingList = append(state.ReplyingList, cloneEvent(event))
+	state.UpdatedAt = time.Now().UTC()
+	if event.Type == "message_chunk" {
+		if chunk, ok := event.Data.(agenttypes.MessageChunk); ok {
+			state.Summary = lastRunes(state.Summary+chunk.Content, 50)
+		}
+	}
+}
+
+func (h *StreamHub) ListReplyingSessions() []ReplyingSessionState {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	items := make([]ReplyingSessionState, 0, len(h.pendingSessions))
+	for sessionKey, state := range h.pendingSessions {
+		if state == nil || blank(sessionKey) || blank(state.RootID) {
+			continue
+		}
+		items = append(items, ReplyingSessionState{
+			RootID:       state.RootID,
+			SessionKey:   sessionKey,
+			SessionTitle: state.SessionTitle,
+			Status:       "replying",
+			Summary:      state.Summary,
+			UpdatedAt:    state.UpdatedAt,
+		})
+	}
+	return items
 }
 
 func (h *StreamHub) ReplayPending(rootID, clientID, sessionKey string) {
@@ -398,7 +443,7 @@ func (h *StreamHub) BroadcastSessionUserMessage(
 	content string,
 	excludeClientID string,
 ) {
-	pendingUser := h.SetPendingUser(sessionKey, agentName, model, mode, effort, content)
+	pendingUser := h.SetPendingUser(rootID, sessionKey, sessionName, agentName, model, mode, effort, content)
 	resp := buildSessionUserMessageResponse(rootID, sessionKey, sessionType, sessionName, agentName, model, mode, effort, content, pendingUser.Timestamp)
 	for _, clientID := range h.GetSessionClientIDs(sessionKey, false) {
 		if clientID == excludeClientID {
@@ -406,6 +451,17 @@ func (h *StreamHub) BroadcastSessionUserMessage(
 		}
 		h.SendToClient(clientID, resp)
 	}
+}
+
+func lastRunes(value string, max int) string {
+	if max <= 0 || value == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= max {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[len(runes)-max:])
 }
 
 func (h *StreamHub) WriteJSON(clientID string, conn *websocket.Conn, value any) error {

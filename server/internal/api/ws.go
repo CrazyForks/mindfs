@@ -413,6 +413,8 @@ func (h *WSHandler) handleSessionMessage(ctx context.Context, conn *websocket.Co
 			log.Printf("[session-name] async.broadcast root=%s session=%s name=%q", rootID, sessionKey, updated.Name)
 			h.broadcastSessionMetaUpdated(rootID, updated)
 		}(rootID, key, agentName, content)
+	} else if current, err := uc.GetSession(ctx, usecase.GetSessionInput{RootID: rootID, Key: key}); err == nil && current != nil {
+		sessionName = current.Name
 	}
 	if requestID != "" {
 		h.sendWSAccepted(conn, clientID, requestID, rootID, key)

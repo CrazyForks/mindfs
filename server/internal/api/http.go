@@ -232,6 +232,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Get("/api/candidates", h.protectedEndpoint(h.handleCandidates))
 	r.Post("/api/prompts", h.protectedEndpoint(h.handlePromptSave))
 	r.Get("/api/sessions", h.protectedEndpoint(h.handleSessions))
+	r.Get("/api/replying-sessions", h.handleReplyingSessions)
 	r.Get("/api/sessions/search", h.protectedEndpoint(h.handleSessionSearch))
 	r.Get("/api/sessions/external", h.protectedEndpoint(h.handleExternalSessionsList))
 	r.Post("/api/sessions/import", h.protectedEndpoint(h.handleExternalSessionImport))
@@ -290,6 +291,41 @@ func (h *HTTPHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 		payload = append(payload, sessionListResponse(s))
 	}
 	respondJSON(w, http.StatusOK, payload)
+}
+
+func (h *HTTPHandler) handleReplyingSessions(w http.ResponseWriter, r *http.Request) {
+	if h.AppContext == nil || h.AppContext.GetSessionStreamHub() == nil {
+		respondJSON(w, http.StatusOK, map[string]any{"sessions": []map[string]any{}})
+		return
+	}
+	items := h.AppContext.GetSessionStreamHub().ListReplyingSessions()
+	payload := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		rootTitle := item.RootID
+		sessionTitle := strings.TrimSpace(item.SessionTitle)
+		if root, err := h.AppContext.GetRoot(item.RootID); err == nil {
+			if strings.TrimSpace(root.Name) != "" {
+				rootTitle = root.Name
+			}
+			if sessionTitle == "" {
+				if manager, err := h.AppContext.GetSessionManager(item.RootID); err == nil {
+					if sess, err := manager.Get(r.Context(), item.SessionKey, 0); err == nil && sess != nil {
+						sessionTitle = sess.Name
+					}
+				}
+			}
+		}
+		payload = append(payload, map[string]any{
+			"rootId":       item.RootID,
+			"rootTitle":    rootTitle,
+			"sessionKey":   item.SessionKey,
+			"sessionTitle": sessionTitle,
+			"status":       item.Status,
+			"summary":      item.Summary,
+			"updatedAt":    item.UpdatedAt,
+		})
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"sessions": payload})
 }
 
 func (h *HTTPHandler) handleSessionSearch(w http.ResponseWriter, r *http.Request) {

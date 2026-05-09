@@ -67,7 +67,6 @@ import {
   cancelScheduledWebViewCacheClear,
   scheduleWebViewCacheClearOnNextLaunch,
 } from "./services/nativeCacheControl";
-
 // 直接导入标准组件
 import { AppShell } from "./layout/AppShell";
 import { FileTree } from "./components/FileTree";
@@ -4569,6 +4568,28 @@ export function App({ onGoHome }: AppProps) {
     },
     [file, sessions, handleSelectSession],
   );
+
+  useEffect(() => {
+    function openReplySession(detail: any) {
+      const rootId = typeof detail?.rootId === "string" ? detail.rootId.trim() : "";
+      const sessionKey = typeof detail?.sessionKey === "string" ? detail.sessionKey.trim() : "";
+      if (!rootId || !sessionKey) {
+        return;
+      }
+      handleSessionChipClick(sessionKey, rootId);
+    }
+
+    function handleOpenReplySession(event: Event) {
+      openReplySession((event as CustomEvent).detail);
+    }
+
+    window.addEventListener("mindfs:open-reply-session", handleOpenReplySession);
+    openReplySession((window as any).__mindfsPendingReplySession);
+    delete (window as any).__mindfsPendingReplySession;
+    return () => {
+      window.removeEventListener("mindfs:open-reply-session", handleOpenReplySession);
+    };
+  }, [handleSessionChipClick]);
 
   const handleFileViewerPathClick = useCallback(
     (path: string) => {

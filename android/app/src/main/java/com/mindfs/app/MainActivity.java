@@ -1,12 +1,15 @@
 package com.mindfs.app;
 
+import android.Manifest;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -15,21 +18,28 @@ import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.core.graphics.Insets;
 import com.getcapacitor.BridgeActivity;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "MindFS";
+    private static final int POST_NOTIFICATIONS_REQUEST_CODE = 19031;
+    private boolean notificationPermissionRequested = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(NativeDownloadPlugin.class);
         registerPlugin(NativeCacheControlPlugin.class);
         registerPlugin(LauncherNodeSyncPlugin.class);
+        registerPlugin(ReplyPollerPlugin.class);
         super.onCreate(savedInstanceState);
         WebView.setWebContentsDebuggingEnabled(true);
         CookieManager.getInstance().setAcceptCookie(true);
@@ -49,15 +59,27 @@ public class MainActivity extends BridgeActivity {
             "MindFSExternalBrowser"
         );
         clearPendingWebViewCacheIfNeeded();
+        requestPostNotificationsIfNeeded();
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         applySystemBarStyle();
         installEdgeToEdgeInsetsOverride();
         fixWebViewMargin();
+        dispatchReplySessionIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        dispatchReplySessionIntent(intent);
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        requestPostNotificationsIfNeeded();
+        pauseReplyPoller();
+        clearCompletedReplyNotifications();
         applySystemBarStyle();
         installEdgeToEdgeInsetsOverride();
         fixWebViewMargin();
@@ -66,6 +88,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPause() {
         CookieManager.getInstance().flush();
+        resumeReplyPollerFromCurrentPage();
         super.onPause();
     }
 
@@ -178,6 +201,30 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
+    private void dispatchReplySessionIntent(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+        String rootId = intent.getStringExtra("rootId");
+        String sessionKey = intent.getStringExtra("sessionKey");
+        if (rootId == null || rootId.trim().isEmpty() || sessionKey == null || sessionKey.trim().isEmpty()) {
+            return;
+        }
+        intent.removeExtra("rootId");
+        intent.removeExtra("sessionKey");
+        View webView = getBridge() == null ? null : getBridge().getWebView();
+        if (!(webView instanceof WebView)) {
+            return;
+        }
+        String script = String.format(
+            java.util.Locale.US,
+            "(function(){var detail={rootId:%s,sessionKey:%s};window.__mindfsPendingReplySession=detail;window.dispatchEvent(new CustomEvent('mindfs:open-reply-session',{detail:detail}));})();",
+            JSONObject.quote(rootId.trim()),
+            JSONObject.quote(sessionKey.trim())
+        );
+        webView.postDelayed(() -> ((WebView) webView).evaluateJavascript(script, null), 250);
+    }
+
     private void clearPendingWebViewCacheIfNeeded() {
         if (!NativeCacheControlPlugin.shouldClearWebViewCacheOnNextLaunch(this)) {
             return;
@@ -190,6 +237,137 @@ public class MainActivity extends BridgeActivity {
         } finally {
             NativeCacheControlPlugin.consumeClearWebViewCacheOnNextLaunch(this);
         }
+    }
+
+    private void clearCompletedReplyNotifications() {
+        Intent intent = new Intent(this, ReplyPollerService.class);
+        intent.setAction(ReplyPollerService.ACTION_CLEAR_COMPLETED);
+        startService(intent);
+    }
+
+    private void pauseReplyPoller() {
+        Intent intent = new Intent(this, ReplyPollerService.class);
+        intent.setAction(ReplyPollerService.ACTION_PAUSE);
+        startService(intent);
+    }
+
+    private void resumeReplyPollerFromCurrentPage() {
+        String apiBaseUrl = currentHTTPOrigin();
+        if (apiBaseUrl.isEmpty()) {
+            Log.w(TAG, "skip reply poller resume: unable to derive API base URL");
+            return;
+        }
+        Intent configure = new Intent(this, ReplyPollerService.class);
+        configure.setAction(ReplyPollerService.ACTION_CONFIGURE);
+        configure.putExtra(ReplyPollerService.EXTRA_API_BASE_URL, apiBaseUrl);
+        startService(configure);
+
+        Intent resume = new Intent(this, ReplyPollerService.class);
+        resume.setAction(ReplyPollerService.ACTION_RESUME);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, resume);
+        } else {
+            startService(resume);
+        }
+    }
+
+    private String currentHTTPOrigin() {
+        View view = getBridge() == null ? null : getBridge().getWebView();
+        if (!(view instanceof WebView)) {
+            return launcherNodeOrigin();
+        }
+        String rawURL = ((WebView) view).getUrl();
+        if (rawURL == null || rawURL.trim().isEmpty()) {
+            return launcherNodeOrigin();
+        }
+        Uri uri = Uri.parse(rawURL.trim());
+        String scheme = uri.getScheme();
+        String authority = uri.getEncodedAuthority();
+        if (
+            authority == null ||
+            authority.isEmpty() ||
+            (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))
+        ) {
+            return launcherNodeOrigin();
+        }
+        String host = uri.getHost();
+        if ("localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)) {
+            String fallback = launcherNodeOrigin();
+            if (!fallback.isEmpty()) {
+                return fallback;
+            }
+        }
+        return scheme.toLowerCase(java.util.Locale.US) + "://" + authority;
+    }
+
+    private String launcherNodeOrigin() {
+        String raw = getSharedPreferences("mindfs_launcher_node_sync", Context.MODE_PRIVATE)
+            .getString("launcher_nodes", "");
+        if (raw == null || raw.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            JSONArray nodes = new JSONArray(raw);
+            String first = "";
+            for (int i = 0; i < nodes.length(); i += 1) {
+                JSONObject node = nodes.optJSONObject(i);
+                if (node == null) {
+                    continue;
+                }
+                String origin = originFromURL(node.optString("url", ""));
+                if (origin.isEmpty()) {
+                    continue;
+                }
+                if (first.isEmpty()) {
+                    first = origin;
+                }
+                if (origin.startsWith("http://")) {
+                    return origin;
+                }
+            }
+            return first;
+        } catch (Exception ex) {
+            Log.w(TAG, "failed to parse launcher nodes for reply poller", ex);
+            return "";
+        }
+    }
+
+    private String originFromURL(String rawURL) {
+        if (rawURL == null || rawURL.trim().isEmpty()) {
+            return "";
+        }
+        Uri uri = Uri.parse(rawURL.trim());
+        String scheme = uri.getScheme();
+        String authority = uri.getEncodedAuthority();
+        if (
+            authority == null ||
+            authority.isEmpty() ||
+            (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))
+        ) {
+            return "";
+        }
+        return scheme.toLowerCase(java.util.Locale.US) + "://" + authority;
+    }
+
+    private void requestPostNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return;
+        }
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED
+        ) {
+            return;
+        }
+        if (notificationPermissionRequested) {
+            return;
+        }
+        notificationPermissionRequested = true;
+        ActivityCompat.requestPermissions(
+            this,
+            new String[] { Manifest.permission.POST_NOTIFICATIONS },
+            POST_NOTIFICATIONS_REQUEST_CODE
+        );
     }
 
     private class LauncherNodeSyncBridge {
