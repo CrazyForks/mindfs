@@ -10,6 +10,9 @@ type ExchangeLike = {
   seq?: number;
   role?: string;
   agent?: string;
+  model?: string;
+  effort?: string;
+  fast_service?: string;
   content?: string;
   context_window?: {
     totalTokens: number;
@@ -30,6 +33,9 @@ export type TimelineItem =
       content: string;
       timestamp?: string;
       agent?: string;
+      model?: string;
+      effort?: string;
+      fastService?: string;
       pendingAck?: boolean;
       seq?: number;
       contextWindow?: {
@@ -141,6 +147,9 @@ function assistantSegmentItem(
     content,
     timestamp: ex.timestamp,
     agent: ex.agent,
+    model: ex.model,
+    effort: ex.effort,
+    fastService: ex.fast_service,
     seq: ex.seq,
     contextWindow: includeContextWindow ? ex.context_window : undefined,
   };

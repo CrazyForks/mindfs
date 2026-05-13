@@ -30,6 +30,9 @@ type SessionItem = {
     seq?: number;
     role?: string;
     agent?: string;
+    model?: string;
+    effort?: string;
+    fast_service?: string;
     content?: string;
     timestamp?: string;
     context_window?: {
@@ -220,6 +223,19 @@ function formatCompactTokenCount(value: number) {
     return `${Math.round(value / 1_000)}K`;
   }
   return String(Math.round(value));
+}
+
+function formatAssistantExchangeMeta(item: TimelineItem): string {
+  if (item.type !== "assistant_text") {
+    return "";
+  }
+  const parts = [item.model, item.effort]
+    .map((value) => `${value || ""}`.trim())
+    .filter(Boolean);
+  if (`${item.fastService || ""}`.trim().toLowerCase() === "on") {
+    parts.push("fast");
+  }
+  return parts.join(" · ");
 }
 
 function ContextWindowBadge({
@@ -1103,6 +1119,9 @@ if (useInnerScrollContainer && !container) {
     const assistantMarkdownContent = !isUser
       ? collectAssistantFlowMarkdown(timeline, idx)
       : "";
+    const assistantExchangeMeta = !isUser
+      ? formatAssistantExchangeMeta(item)
+      : "";
     return (
       <div
         key={timelineItemKey}
@@ -1490,6 +1509,9 @@ if (useInnerScrollContainer && !container) {
                   agentName={item.agent || ""}
                   style={{ width: "12px", height: "12px" }}
                 />
+                {assistantExchangeMeta ? (
+                  <span>{assistantExchangeMeta}</span>
+                ) : null}
                 <span>{time}</span>
                 <ContextWindowBadge contextWindow={item.contextWindow} />
               </span>
