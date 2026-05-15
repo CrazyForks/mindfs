@@ -318,7 +318,7 @@ const TREE_SORT_STORAGE_KEY = "mindfs-tree-sort-mode";
 const DIRECTORY_SORT_OVERRIDES_STORAGE_KEY = "mindfs-directory-sort-overrides";
 const FILE_SCROLL_STORAGE_KEY = "mindfs-file-scroll-positions";
 const LAST_ROOT_STORAGE_KEY = "mindfs-last-root-id";
-const SHOW_GIT_HISTORY_STORAGE_KEY = "mindfs-show-git-history";
+const SHOW_GIT_HISTORY_BY_ROOT_STORAGE_KEY = "mindfs-show-git-history-by-root";
 const GIT_STATUS_EXPANDED_STORAGE_KEY = "mindfs-git-status-expanded";
 const GIT_HISTORY_EXPANDED_STORAGE_KEY = "mindfs-git-history-expanded";
 const READ_FILE_TOKEN_PATTERN = /\[read file:\s*[^\]]+\]/i;
@@ -1055,12 +1055,9 @@ export function App({ onGoHome }: AppProps) {
   const [gitHistory, setGitHistory] = useState<GitHistoryPayload | null>(null);
   const [gitHistoryLoading, setGitHistoryLoading] = useState(false);
   const [gitHistoryLoadingMore, setGitHistoryLoadingMore] = useState(false);
-  const [showGitHistory, setShowGitHistory] = useState(() => {
-    if (typeof window === "undefined") {
-      return true;
-    }
-    return window.localStorage.getItem(SHOW_GIT_HISTORY_STORAGE_KEY) !== "0";
-  });
+  const [showGitHistoryByRoot, setShowGitHistoryByRoot] = useState<Record<string, boolean>>(() =>
+    loadBooleanRecord(SHOW_GIT_HISTORY_BY_ROOT_STORAGE_KEY),
+  );
   const [gitStatusExpandedByRoot, setGitStatusExpandedByRoot] = useState<Record<string, boolean>>(() =>
     loadBooleanRecord(GIT_STATUS_EXPANDED_STORAGE_KEY),
   );
@@ -1362,8 +1359,8 @@ export function App({ onGoHome }: AppProps) {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem(SHOW_GIT_HISTORY_STORAGE_KEY, showGitHistory ? "1" : "0");
-  }, [showGitHistory]);
+    window.localStorage.setItem(SHOW_GIT_HISTORY_BY_ROOT_STORAGE_KEY, JSON.stringify(showGitHistoryByRoot));
+  }, [showGitHistoryByRoot]);
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -6824,6 +6821,7 @@ export function App({ onGoHome }: AppProps) {
   const isRootDirectoryView = !selectedDir || selectedDir === currentRootId || selectedDir === ".";
   const gitStatusAvailable = filteredGitStatus?.available === true;
   const gitHistoryAvailable = gitHistory?.available === true;
+  const showGitHistory = currentRootId ? showGitHistoryByRoot[currentRootId] !== false : true;
   const gitStatusExpanded = currentRootId ? gitStatusExpandedByRoot[currentRootId] !== false : true;
   const gitHistoryExpandedCommits = currentRootId ? gitHistoryExpandedByRoot[currentRootId] || {} : {};
   const shouldRenderGitPanel =
@@ -7121,7 +7119,13 @@ export function App({ onGoHome }: AppProps) {
         isGitRepo={managedRootByIdRef.current[currentRootId || ""]?.is_git_repo === true}
         isGitWorktree={managedRootByIdRef.current[currentRootId || ""]?.is_git_worktree === true}
         showGitHistory={showGitHistory}
-        onToggleGitHistory={() => setShowGitHistory((value) => !value)}
+        onToggleGitHistory={() => {
+          const root = currentRootIdRef.current;
+          if (!root) {
+            return;
+          }
+          setShowGitHistoryByRoot((prev) => ({ ...prev, [root]: prev[root] === false }));
+        }}
         onCreateWorktree={handleOpenWorktreeLocation}
         onRemoveWorktree={handleRemoveCurrentWorktree}
         menuOverlay={

@@ -120,7 +120,7 @@ export function GitHistoryPanel({
             const dotColor = commit.remote === true ? "#7c3aed" : "#2563eb";
             return (
               <div key={commit.hash} style={{ display: "grid", gridTemplateColumns: "8px minmax(0, 1fr)", columnGap: "2px", position: "relative" }}>
-                {index < items.length - 1 ? (
+                {index < items.length - 1 || hasMore ? (
                   <span
                     aria-hidden="true"
                     style={{
@@ -217,40 +217,55 @@ export function GitHistoryPanel({
             );
           })}
           {hasMore ? (
-            <button
-              type="button"
-              aria-label={loadingMore ? "加载中" : "加载更多 git 历史"}
-              title={loadingMore ? "加载中" : "加载更多"}
-              disabled={loadingMore}
-              onClick={onLoadMore}
-              style={{
-                alignSelf: "stretch",
-                width: "100%",
-                height: "30px",
-                border: "1px solid var(--border-color)",
-                background: "var(--menu-active-bg)",
-                color: "var(--text-primary)",
-                padding: 0,
-                borderRadius: "8px",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: loadingMore ? "default" : "pointer",
-                opacity: loadingMore ? 0.6 : 1,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--selection-bg)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--menu-active-bg)";
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true" style={{ width: "28px", height: "28px" }}>
-                <circle cx="12" cy="24" r="3" fill="currentColor" />
-                <circle cx="24" cy="24" r="3" fill="currentColor" />
-                <circle cx="36" cy="24" r="3" fill="currentColor" />
-              </svg>
-            </button>
+            <div style={{ display: "grid", gridTemplateColumns: "8px minmax(0, 1fr)", columnGap: "2px", position: "relative" }}>
+              <span style={{ height: "30px", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "999px",
+                    border: "1.5px solid rgba(148, 163, 184, 0.8)",
+                    background: "var(--background-color)",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </span>
+              <button
+                type="button"
+                aria-label={loadingMore ? "加载中" : "加载更多 git 历史"}
+                title={loadingMore ? "加载中" : "加载更多"}
+                disabled={loadingMore}
+                onClick={onLoadMore}
+                style={{
+                  alignSelf: "stretch",
+                  width: "100%",
+                  height: "30px",
+                  border: "none",
+                  background: "var(--menu-active-bg)",
+                  color: "var(--text-primary)",
+                  padding: 0,
+                  borderRadius: "8px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: loadingMore ? "default" : "pointer",
+                  opacity: loadingMore ? 0.6 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--selection-bg)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--menu-active-bg)";
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true" style={{ width: "28px", height: "28px" }}>
+                  <circle cx="12" cy="24" r="3" fill="currentColor" />
+                  <circle cx="24" cy="24" r="3" fill="currentColor" />
+                  <circle cx="36" cy="24" r="3" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
           ) : null}
         </div>
       )}

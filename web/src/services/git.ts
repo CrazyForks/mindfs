@@ -44,6 +44,7 @@ export type GitHistoryPayload = {
   items: GitHistoryItem[];
   has_more: boolean;
   commit_missing?: boolean;
+  remote_head?: string;
 };
 
 export type GitCommitFilesPayload = {
@@ -79,6 +80,7 @@ const COMMIT_DIFF_STORAGE_PREFIX = "mindfs.git.history.diff:";
 type GitHistoryCacheEntry = {
   items: GitHistoryItem[];
   hasMore: boolean;
+  remoteHead?: string;
 };
 
 const gitHistoryListCache = new Map<string, GitHistoryCacheEntry>();
@@ -140,7 +142,9 @@ function getHistoryCacheEntry(rootId: string): GitHistoryCacheEntry | null {
     const normalized = {
       items: persisted.items.filter((item) => !!item?.hash),
       hasMore: persisted.hasMore === true,
+      remoteHead: typeof persisted.remoteHead === "string" ? persisted.remoteHead : undefined,
     };
+    normalized.items = applyRemoteHead(normalized.items, normalized.remoteHead);
     gitHistoryListCache.set(rootId, normalized);
     return normalized;
   }
@@ -167,7 +171,21 @@ function normalizeGitHistoryPayload(payload: any): GitHistoryPayload {
       : [],
     has_more: payload?.has_more === true,
     commit_missing: payload?.commit_missing === true,
+    remote_head: typeof payload?.remote_head === "string" ? payload.remote_head : undefined,
   };
+}
+
+function applyRemoteHead(items: GitHistoryItem[], remoteHead?: string): GitHistoryItem[] {
+  if (!remoteHead) {
+    return items;
+  }
+  const remoteHeadIndex = items.findIndex((item) => item.hash === remoteHead);
+  if (remoteHeadIndex < 0) {
+    return items;
+  }
+  return items.map((item, index) => (
+    index >= remoteHeadIndex ? { ...item, remote: true } : item
+  ));
 }
 
 function mergeHistoryItems(existing: GitHistoryItem[], next: GitHistoryItem[]): GitHistoryItem[] {
@@ -191,6 +209,7 @@ export function getCachedGitHistory(rootId: string): GitHistoryPayload | null {
     available: true,
     items: cached.items.slice(),
     has_more: cached.hasMore,
+    remote_head: cached.remoteHead,
   };
 }
 
@@ -203,6 +222,7 @@ export function getCachedGitHistoryHead(rootId: string, limit = DEFAULT_HISTORY_
     available: true,
     items: cached.items.slice(0, limit),
     has_more: cached.items.length > limit || cached.hasMore,
+    remote_head: cached.remoteHead,
   };
 }
 
@@ -247,6 +267,7 @@ export async function fetchGitHistory(
       available: true,
       items: cached.items.slice(0, limit),
       has_more: cached.items.length > limit || cached.hasMore,
+      remote_head: cached.remoteHead,
     };
   }
   if (!options?.force && beforeCommit && cached) {
@@ -254,7 +275,7 @@ export async function fetchGitHistory(
     if (index >= 0) {
       const cachedPage = cached.items.slice(index + 1, index + 1 + limit);
       if (cachedPage.length > 0 || !cached.hasMore) {
-        return { available: true, items: cachedPage, has_more: cached.hasMore };
+        return { available: true, items: cachedPage, has_more: cached.hasMore, remote_head: cached.remoteHead };
       }
     }
   }
@@ -282,22 +303,31 @@ export async function fetchGitHistory(
     }
     const existing = getHistoryCacheEntry(rootId);
     if (!beforeCommit && !afterCommit) {
+      const remoteHead = normalized.remote_head;
       setHistoryCacheEntry(rootId, {
-        items: normalized.items.slice(),
+        items: applyRemoteHead(normalized.items.slice(), remoteHead),
         hasMore: normalized.has_more,
+        remoteHead,
       });
     } else if (beforeCommit) {
+      const remoteHead = normalized.remote_head || existing?.remoteHead;
       setHistoryCacheEntry(rootId, {
-        items: mergeHistoryItems(existing?.items || [], normalized.items),
+        items: applyRemoteHead(mergeHistoryItems(existing?.items || [], normalized.items), remoteHead),
         hasMore: normalized.has_more,
+        remoteHead,
       });
     } else if (afterCommit) {
+      const remoteHead = normalized.remote_head || existing?.remoteHead;
       setHistoryCacheEntry(rootId, {
-        items: mergeHistoryItems(normalized.items, existing?.items || []),
+        items: applyRemoteHead(mergeHistoryItems(normalized.items, existing?.items || []), remoteHead),
         hasMore: existing?.hasMore ?? normalized.has_more,
+        remoteHead,
       });
     }
-    return normalized;
+    return {
+      ...normalized,
+      items: applyRemoteHead(normalized.items, normalized.remote_head),
+    };
   }).finally(() => {
     gitHistoryInflight.delete(key);
   });

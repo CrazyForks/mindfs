@@ -64,6 +64,7 @@ type HistoryResult struct {
 	Items         []HistoryItem `json:"items"`
 	HasMore       bool          `json:"has_more"`
 	CommitMissing bool          `json:"commit_missing,omitempty"`
+	RemoteHead    string        `json:"remote_head,omitempty"`
 }
 
 type CommitFilesResult struct {
@@ -285,11 +286,12 @@ func ListHistory(ctx context.Context, rootPath string, limit int, beforeCommit, 
 	beforeCommit = strings.TrimSpace(beforeCommit)
 	afterCommit = strings.TrimSpace(afterCommit)
 	if beforeCommit != "" && !repo.commitExists(ctx, beforeCommit) {
-		return HistoryResult{Available: true, Items: []HistoryItem{}, CommitMissing: true}, nil
+		return HistoryResult{Available: true, Items: []HistoryItem{}, CommitMissing: true, RemoteHead: repo.remoteHistoryHead(ctx)}, nil
 	}
 	if afterCommit != "" && !repo.commitExists(ctx, afterCommit) {
-		return HistoryResult{Available: true, Items: []HistoryItem{}, CommitMissing: true}, nil
+		return HistoryResult{Available: true, Items: []HistoryItem{}, CommitMissing: true, RemoteHead: repo.remoteHistoryHead(ctx)}, nil
 	}
+	remoteHead := repo.remoteHistoryHead(ctx)
 
 	args := []string{"log", "--format=%H%x00%s%x00%cI%x00", fmt.Sprintf("--max-count=%d", limit+1)}
 	if afterCommit != "" {
@@ -300,7 +302,7 @@ func ListHistory(ctx context.Context, rootPath string, limit int, beforeCommit, 
 			return HistoryResult{}, err
 		}
 		if len(parents) == 0 {
-			return HistoryResult{Available: true, Items: []HistoryItem{}, HasMore: false}, nil
+			return HistoryResult{Available: true, Items: []HistoryItem{}, HasMore: false, RemoteHead: remoteHead}, nil
 		}
 		args = append(args, parents...)
 	}
@@ -317,7 +319,7 @@ func ListHistory(ctx context.Context, rootPath string, limit int, beforeCommit, 
 		items = items[:limit]
 	}
 	repo.markRemoteHistoryItems(ctx, items)
-	return HistoryResult{Available: true, Items: items, HasMore: hasMore}, nil
+	return HistoryResult{Available: true, Items: items, HasMore: hasMore, RemoteHead: remoteHead}, nil
 }
 
 func ListCommitFiles(ctx context.Context, rootPath, commit string) (CommitFilesResult, error) {
@@ -637,6 +639,33 @@ func (r repoContext) markRemoteHistoryItems(ctx context.Context, items []History
 		}
 		items[i].Remote = strings.TrimSpace(output) != ""
 	}
+}
+
+func (r repoContext) remoteHistoryHead(ctx context.Context) string {
+	upstream, err := runGit(ctx, r.repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	if err != nil {
+		return ""
+	}
+	upstream = strings.TrimSpace(upstream)
+	if upstream == "" {
+		return ""
+	}
+	mergeBase, err := runGit(ctx, r.repoRoot, "merge-base", "HEAD", upstream)
+	if err != nil {
+		return ""
+	}
+	mergeBase = strings.TrimSpace(mergeBase)
+	if mergeBase == "" {
+		return ""
+	}
+	if r.prefix == "" {
+		return mergeBase
+	}
+	output, err := runGit(ctx, r.repoRoot, "log", "--format=%H", "--max-count=1", mergeBase, "--", r.prefix)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
 }
 
 func (r repoContext) commitNameStatus(ctx context.Context, commit string) ([]porcelainItem, error) {
