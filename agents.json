@@ -147,6 +147,30 @@
       "configBackup": {}
     },
     {
+      "name": "omp",
+      "command": "omp",
+      "protocol": "acp",
+      "args": [
+        "acp"
+      ],
+      "configBackup": {
+        "fileSources": [
+          "~/.omp/agent/.env",
+          "~/.omp/.env",
+          "~/.omp/agent/config.yml",
+          "~/.omp/agent/models.yml",
+          "~/.omp/agent/mcp.json",
+          "~/.omp/agent/agent.db"
+        ],
+        "envKeys": [
+          "PI_CONFIG_DIR",
+          "PI_CODING_AGENT_DIR",
+          "OMP_AUTH_BROKER_URL",
+          "OMP_AUTH_BROKER_TOKEN"
+        ]
+      }
+    },
+    {
       "name": "pi",
       "command": "pi-acp",
       "protocol": "acp",

@@ -126,6 +126,34 @@ func TestLoadConfigReadsRelayBaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadConfigReadsOMPAgent(t *testing.T) {
+	cfg := loadPoolTestConfig(t)
+	def, ok := cfg.GetAgent("omp")
+	if !ok {
+		t.Fatalf("expected omp in test agents.json")
+	}
+	if def.Command != "omp" || def.Protocol != ProtocolACP {
+		t.Fatalf("omp definition = command %q protocol %q", def.Command, def.Protocol)
+	}
+	if len(def.Args) != 1 || def.Args[0] != "acp" {
+		t.Fatalf("omp args = %#v", def.Args)
+	}
+}
+
+func TestDefaultConfigIncludesOMPAgent(t *testing.T) {
+	cfg := defaultConfig()
+	def, ok := cfg.GetAgent("omp")
+	if !ok {
+		t.Fatalf("expected omp in default config")
+	}
+	if def.Command != "omp" || def.Protocol != ProtocolACP {
+		t.Fatalf("omp default definition = command %q protocol %q", def.Command, def.Protocol)
+	}
+	if len(def.Args) != 1 || def.Args[0] != "acp" {
+		t.Fatalf("omp default args = %#v", def.Args)
+	}
+}
+
 func TestLoadConfigPrefersWorkingDirAgentsJSONForRelativeLaunch(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "agents.json")

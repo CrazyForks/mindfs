@@ -16,6 +16,12 @@
       "name": "claude",
       "command": "claude",
       "protocol": "claude-sdk"
+    },
+    {
+      "name": "omp",
+      "command": "omp",
+      "protocol": "acp",
+      "args": ["acp"]
     }
   ]
 }
