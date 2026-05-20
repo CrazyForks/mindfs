@@ -462,7 +462,7 @@ func resolveServicePID(addr string, useTLS bool, pidPath string) (int, error) {
 		return 0, err
 	}
 
-	if strings.TrimSpace(addr) == "" || !serverRunning(addr, useTLS) {
+	if strings.TrimSpace(addr) == "" {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return 0, err
 		}
@@ -472,6 +472,9 @@ func resolveServicePID(addr string, useTLS bool, pidPath string) (int, error) {
 	pid, err = findListeningMindfsPID(addr)
 	if err != nil {
 		return 0, err
+	}
+	if pid <= 0 && !serverRunning(addr, useTLS) {
+		return 0, os.ErrNotExist
 	}
 	if pid <= 0 {
 		return 0, os.ErrNotExist
