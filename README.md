@@ -31,7 +31,7 @@ Access your personal AI agents and workstation data anywhere, anytime through Mi
 - **Binding persistence and recovery**: MindFS persists the mapping between its internal session and the underlying agent session, so the link can be restored after service restarts and follow-up messages continue on the same agent session when available.
 - **Rich media input**: Attach files and images directly in your messages.
 - **Multi-device sync**: Access the same instance from multiple devices simultaneously with live session sync.
-- - **Configuration backup and switching**: Agent configurations can be backed up and switched with one click, making it easier to move between multiple accounts or API keys.
+- **Configuration backup and switching**: Agent configurations can be backed up and switched with one click, making it easier to move between multiple accounts or API keys.
 
 ### File Access
 
@@ -163,9 +163,9 @@ MindFS automatically detects the availability of installed agents. This usually 
 mindfs [flags] [root]
 ```
 
-`root` is the directory to manage. If omitted, MindFS manages the current directory.
+`root` is the directory to manage. If omitted, MindFS opens without adding a directory.
 
-By default, `mindfs` starts a background service, registers `root`, and opens the browser. If a service is already running on the selected address, the command reuses it and only adds the directory.
+By default, `mindfs` starts or reuses a background service and opens the browser. Pass `root` to register a directory; if a service is already running on the selected address, the command reuses it and adds that directory.
 
 #### Common Commands
 

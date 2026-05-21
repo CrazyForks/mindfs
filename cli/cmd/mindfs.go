@@ -45,7 +45,7 @@ func main() {
 		fmt.Fprintf(out, "Usage:\n")
 		fmt.Fprintf(out, "  mindfs [flags] [root]\n\n")
 		fmt.Fprintf(out, "Arguments:\n")
-		fmt.Fprintf(out, "  root    Directory to manage. Defaults to the current directory.\n\n")
+		fmt.Fprintf(out, "  root    Directory to manage. If omitted, MindFS opens without adding a directory.\n\n")
 		fmt.Fprintf(out, "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(out, "\nExamples:\n")
@@ -76,15 +76,12 @@ func main() {
 		log.Printf("[mindfs] internal restart detected addr=%s root_arg_count=%d", *addr, flag.NArg())
 	}
 
+	hasRootArg := flag.NArg() > 0
 	root := "."
-	if flag.NArg() > 0 {
+	if hasRootArg {
 		root = flag.Arg(0)
 	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
+	absRoot := ""
 	stateDir, err := ensureStateDir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -123,6 +120,11 @@ func main() {
 	}
 
 	if *remove {
+		absRoot, err = filepath.Abs(root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
 		if err := handleRemoveRoot(*addr, *tlsFlag, absRoot); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
@@ -143,13 +145,22 @@ func main() {
 
 	if !internalRestart && !*restart && serverRunning(*addr, *tlsFlag) {
 		fmt.Fprintf(os.Stdout, "server already running on %s, reusing existing process\n", *addr)
-		rootInfo, err := addManagedDir(*addr, *tlsFlag, absRoot)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
+		rootID := ""
+		if hasRootArg {
+			absRoot, err = filepath.Abs(root)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			rootInfo, err := addManagedDir(*addr, *tlsFlag, absRoot)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			rootID = rootInfo.ID
+			fmt.Fprintln(os.Stdout, "added managed directory:", rootInfo.RootPath)
 		}
-		fmt.Fprintln(os.Stdout, "added managed directory:", rootInfo.RootPath)
-		if err := openTarget(*addr, *tlsFlag, rootInfo.ID); err != nil {
+		if err := openTarget(*addr, *tlsFlag, rootID); err != nil {
 			reportOpenTargetError(os.Stderr, err)
 		}
 		return
@@ -174,14 +185,23 @@ func main() {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
-		rootInfo, err := addManagedDir(*addr, *tlsFlag, absRoot)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
-		}
+		rootID := ""
 		fmt.Fprintln(os.Stdout, "mindfs service started")
-		fmt.Fprintln(os.Stdout, "added managed directory:", rootInfo.RootPath)
-		if err := openTarget(*addr, *tlsFlag, rootInfo.ID); err != nil {
+		if hasRootArg {
+			absRoot, err = filepath.Abs(root)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			rootInfo, err := addManagedDir(*addr, *tlsFlag, absRoot)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			rootID = rootInfo.ID
+			fmt.Fprintln(os.Stdout, "added managed directory:", rootInfo.RootPath)
+		}
+		if err := openTarget(*addr, *tlsFlag, rootID); err != nil {
 			reportOpenTargetError(os.Stderr, err)
 		}
 		fmt.Fprintf(os.Stdout, "logs: %s\n", logPath)
@@ -213,16 +233,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	rootInfo, err := addManagedDir(*addr, *tlsFlag, absRoot)
-	if err != nil {
-		cancel()
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+	rootID := ""
+	if hasRootArg {
+		absRoot, err = filepath.Abs(root)
+		if err != nil {
+			cancel()
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		rootInfo, err := addManagedDir(*addr, *tlsFlag, absRoot)
+		if err != nil {
+			cancel()
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		rootID = rootInfo.ID
+		fmt.Fprintln(os.Stdout, "added managed directory:", rootInfo.RootPath)
 	}
-	fmt.Fprintln(os.Stdout, "added managed directory:", rootInfo.RootPath)
 
 	if !internalRestart && (*foreground || !daemonMode) {
-		if err := openTarget(*addr, *tlsFlag, rootInfo.ID); err != nil {
+		if err := openTarget(*addr, *tlsFlag, rootID); err != nil {
 			reportOpenTargetError(os.Stderr, err)
 		}
 	}
