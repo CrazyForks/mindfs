@@ -159,12 +159,6 @@ func defaultConfig() Config {
 				Command:  "codex",
 				Protocol: ProtocolCodexSDK,
 			},
-			{
-				Name:     "omp",
-				Command:  "omp",
-				Protocol: ProtocolACP,
-				Args:     []string{"acp"},
-			},
 		},
 	}
 }
