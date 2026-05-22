@@ -45,7 +45,7 @@ export type AgentCommandInfo = {
   argument_hint?: string;
 };
 
-const VALID_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const VALID_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 function normalizeEfforts(input: unknown): string[] | undefined {
   if (!Array.isArray(input)) {
     return undefined;

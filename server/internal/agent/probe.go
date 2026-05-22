@@ -864,7 +864,7 @@ func inferAgentEfforts(models []agenttypes.ModelInfo) []string {
 		return nil
 	}
 	if looksLikeClaude {
-		return []string{"low", "medium", "high"}
+		return []string{"low", "medium", "high", "xhigh", "max"}
 	}
 	return []string{"low", "medium", "high", "xhigh"}
 }
