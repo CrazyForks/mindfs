@@ -223,19 +223,30 @@ body {
 .mindfs-xterm-output .xterm,
 .mindfs-xterm-output .xterm-viewport,
 .mindfs-xterm-output .xterm-screen {
-  touch-action: none;
+  touch-action: auto;
   overscroll-behavior: auto;
-  pointer-events: none;
 }
 
 .mindfs-xterm-output .xterm-viewport {
-  overflow: hidden !important;
-  scrollbar-gutter: auto;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
   scrollbar-width: none;
 }
 
 .mindfs-xterm-output .xterm-viewport::-webkit-scrollbar {
   display: none;
+}
+
+.mindfs-xterm-output .xterm-scrollable-element > .scrollbar,
+.mindfs-xterm-output .xterm-scrollable-element > .shadow {
+  display: none !important;
+}
+
+.mindfs-xterm-output .xterm-cursor,
+.mindfs-xterm-output .xterm-cursor-layer {
+  display: none !important;
 }
 
 .mindfs-xterm-scroll {

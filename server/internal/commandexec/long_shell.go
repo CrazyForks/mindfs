@@ -406,7 +406,7 @@ func (r *longShellCommand) consume(chunk []byte) {
 		}
 		endIdx, codeText, ok := findEndMarkerWithExitCode(r.pending, r.endPrefix)
 		if endIdx >= 0 {
-			before := trimTrailingLineBreak(r.stripShellControlEchoLocked(r.pending[:endIdx]))
+			before := r.stripShellControlEchoLocked(r.pending[:endIdx])
 			if before != "" {
 				r.emitLocked([]byte(before))
 			}
@@ -508,10 +508,6 @@ func trimLeadingLineBreak(value string) string {
 	return strings.TrimLeft(value, "\r\n")
 }
 
-func trimTrailingLineBreak(value string) string {
-	return strings.TrimRight(value, "\r\n")
-}
-
 func (r *longShellCommand) stripShellControlEchoLocked(value string) string {
 	if value == "" {
 		return value
@@ -520,6 +516,12 @@ func (r *longShellCommand) stripShellControlEchoLocked(value string) string {
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
 		hasLineBreak := strings.HasSuffix(line, "\n")
+		if isPowerShellControlEchoLine(line) {
+			if !hasLineBreak {
+				r.suppressEcho = true
+			}
+			continue
+		}
 		if r.suppressEcho {
 			if hasLineBreak {
 				r.suppressEcho = false
@@ -541,6 +543,32 @@ func (r *longShellCommand) stripShellControlEchoLocked(value string) string {
 		kept = append(kept, line)
 	}
 	return strings.Join(kept, "")
+}
+
+func isPowerShellControlEchoLine(line string) bool {
+	text := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "[Console]::OutputEncoding") ||
+		strings.Contains(text, "[Console]::InputEncoding") ||
+		strings.Contains(text, "$__mindfs_status") ||
+		strings.Contains(text, "$global:LASTEXITCODE") {
+		return true
+	}
+	prompt := strings.LastIndex(text, ">")
+	if prompt < 0 {
+		return false
+	}
+	afterPrompt := strings.TrimSpace(text[prompt+1:])
+	if afterPrompt == "" {
+		return false
+	}
+	commandFragment := afterPrompt
+	if cut := strings.IndexAny(commandFragment, " \t('\""); cut >= 0 {
+		commandFragment = commandFragment[:cut]
+	}
+	return len(commandFragment) >= len("Write-") && strings.HasPrefix("Write-Output", commandFragment)
 }
 
 func looksLikeShellPromptPrefix(prefix string) bool {

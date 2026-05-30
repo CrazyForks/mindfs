@@ -121,7 +121,7 @@ function stripAnsi(text: string): string {
 }
 
 function normalizeTerminalText(text: string): string {
-  return (text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n+$/g, "");
+  return (text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function trimTerminalLineEnd(line: string): string {
@@ -164,7 +164,7 @@ function visibleTerminalWidth(text: string): number {
     const codePoint = visible.codePointAt(index);
     if (codePoint === undefined) break;
     const char = String.fromCodePoint(codePoint);
-    width += terminalCharWidth(char);
+    width += char === "\t" ? 8 - (width % 8) : terminalCharWidth(char);
     index += char.length;
   }
   return width;
@@ -176,15 +176,51 @@ function maxTerminalLineWidth(text: string): number {
     .reduce((max, line) => Math.max(max, visibleTerminalWidth(line)), 0);
 }
 
-function outputMetrics(text: string, cols: number, maxVisibleRows: number, expandRows: boolean): { cols: number; rows: number } {
+function countTerminalRows(text: string, cols: number): number {
   const normalized = stripAnsi(normalizeDisplayTerminalText(text));
-  const lines = normalized.split("\n");
-  const physicalRows = lines.length || 1;
-  const visualRows = lines.reduce(
-    (sum, line) => sum + Math.max(1, Math.ceil(visibleTerminalWidth(line) / Math.max(1, cols))),
-    0,
-  );
-  const rows = Math.max(physicalRows, visualRows || 1);
+  const width = Math.max(1, cols);
+  let rows = 1;
+  let cursorX = 0;
+
+  for (let index = 0; index < normalized.length; ) {
+    const codePoint = normalized.codePointAt(index);
+    if (codePoint === undefined) break;
+    const char = String.fromCodePoint(codePoint);
+    index += char.length;
+
+    if (char === "\n") {
+      rows += 1;
+      cursorX = 0;
+      continue;
+    }
+    if (char === "\r") {
+      cursorX = 0;
+      continue;
+    }
+    if (char === "\b") {
+      cursorX = Math.max(0, cursorX - 1);
+      continue;
+    }
+
+    const charWidth = char === "\t" ? 8 - (cursorX % 8) : terminalCharWidth(char);
+    if (charWidth <= 0) {
+      continue;
+    }
+    if (cursorX + charWidth > width) {
+      rows += 1;
+      cursorX = 0;
+    }
+    cursorX += charWidth;
+    if (cursorX >= width) {
+      cursorX = width;
+    }
+  }
+
+  return rows;
+}
+
+function outputMetrics(text: string, cols: number, maxVisibleRows: number, expandRows: boolean): { cols: number; rows: number } {
+  const rows = countTerminalRows(text, cols);
   return {
     cols,
     rows: Math.max(1, expandRows ? Math.min(500, rows) : Math.min(maxVisibleRows, rows)),
@@ -242,15 +278,13 @@ function XtermOutput({ text }: { text: string }) {
       const width = container.clientWidth || 0;
       if (width <= 0) return;
       const charWidth = measureTerminalCharWidth(container);
-      const viewportWidth = window.visualViewport?.width || window.innerWidth || width;
       const viewportHeight = window.visualViewport?.height || window.innerHeight || 720;
-      const mobile = viewportWidth < 768;
       const rowLimit = Math.max(4, Math.min(14, Math.floor(viewportHeight * 0.48 / terminalLinePx)));
       const viewportCols = Math.max(20, Math.floor(width / charWidth) - 1);
       const contentCols = Math.min(320, Math.max(1, maxTerminalLineWidth(displayText)));
       setCharWidth(charWidth);
       setMaxVisibleRows(rowLimit);
-      setExpandRows(mobile);
+      setExpandRows(true);
       setCols(Math.max(viewportCols, contentCols));
     };
     updateCols();
@@ -267,6 +301,8 @@ function XtermOutput({ text }: { text: string }) {
       rows: metrics.rows,
       convertEol: true,
       cursorBlink: false,
+      cursorInactiveStyle: "none",
+      cursorStyle: "block",
       disableStdin: true,
       scrollback: 5000,
       fontFamily: terminalFontFamily,
@@ -278,6 +314,7 @@ function XtermOutput({ text }: { text: string }) {
       },
     });
     terminal.open(container);
+    terminal.attachCustomWheelEventHandler(() => false);
     terminalRef.current = terminal;
     return () => {
       terminal.dispose();
@@ -291,12 +328,11 @@ function XtermOutput({ text }: { text: string }) {
     terminal.reset();
     terminal.resize(metrics.cols, metrics.rows);
     terminal.write(displayText || "");
-    terminal.scrollToTop();
   }, [displayText, metrics.cols, metrics.rows]);
 
   return (
     <div
-      className={`mindfs-xterm-output${expandRows ? " mindfs-xterm-output-expanded" : ""}`}
+      className="mindfs-xterm-output"
       style={{
         marginTop: "10px",
         padding: "8px",
@@ -330,7 +366,6 @@ function XtermOutput({ text }: { text: string }) {
           style={{
             width: `${terminalWidth}px`,
             height: `${terminalHeight}px`,
-            pointerEvents: "none",
           }}
         />
       </div>
@@ -512,9 +547,9 @@ export const ToolCallCard = memo(function ToolCallCard({
       {expanded && hasDetails && (
         <div
           style={{
-            padding: "0 10px 10px",
+            padding: "0 10px 22px",
             borderTop: "1px solid var(--border-color)",
-            maxHeight: isUserShell ? "min(56vh, 520px)" : "min(60vh, 720px)",
+            maxHeight: "min(60vh, 720px)",
             overflowY: "auto",
             WebkitOverflowScrolling: "touch",
             overscrollBehavior: isUserShell ? "auto" : undefined,

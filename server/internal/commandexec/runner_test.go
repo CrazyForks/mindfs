@@ -80,6 +80,29 @@ func TestStripShellControlEchoSuppressesSplitPowerShellLine(t *testing.T) {
 	}
 }
 
+func TestStripShellControlEchoSuppressesPowerShellWriteOutputEcho(t *testing.T) {
+	run := &longShellCommand{}
+	end := "__MINDFS_CMD_END_abc__:"
+
+	value := "real output\r\n" +
+		"PS C:\\Users\\me> Write-Output ('" + end + "' + $__mindfs_status)\r\n" +
+		"next\r\n"
+	if got := run.stripShellControlEchoLocked(value); got != "real output\r\nnext\r\n" {
+		t.Fatalf("output = %q, want control Write-Output echo removed", got)
+	}
+}
+
+func TestStripShellControlEchoSuppressesWrappedPowerShellWriteOutputEcho(t *testing.T) {
+	run := &longShellCommand{}
+
+	if got := run.stripShellControlEchoLocked("PS C:\\Users\\me> Write-Outpu\r\n"); got != "" {
+		t.Fatalf("wrapped first line = %q, want removed", got)
+	}
+	if got := run.stripShellControlEchoLocked("t ('__MINDFS_CMD_END_abc__:' + $__mindfs_status)\r\nnext\r\n"); got != "next\r\n" {
+		t.Fatalf("wrapped second line = %q, want only next line", got)
+	}
+}
+
 func TestSplitCompleteLinesForEmitWaitsForPowerShellEchoLine(t *testing.T) {
 	endPrefix := "__MINDFS_CMD_END_abc__:"
 	pending := "file.txt\nPS C:\\Users\\me> $__mindfs_status"
