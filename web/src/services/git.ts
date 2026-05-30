@@ -86,7 +86,7 @@ export async function fetchGitStatus(rootId: string): Promise<GitStatusPayload> 
 const DEFAULT_HISTORY_LIMIT = 10;
 const HISTORY_LIST_STORAGE_PREFIX = "mindfs.git.history.list:";
 const COMMIT_FILES_STORAGE_PREFIX = "mindfs.git.history.files:";
-const COMMIT_DIFF_STORAGE_PREFIX = "mindfs.git.history.diff:";
+const COMMIT_DIFF_STORAGE_PREFIX = "mindfs.git.history.diff.v2:";
 
 type GitHistoryCacheEntry = {
   items: GitHistoryItem[];

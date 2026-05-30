@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"mindfs/server/internal/fs"
 )
@@ -464,10 +465,11 @@ func ReadCommitDiff(ctx context.Context, rootPath, commit, relPath string) (Diff
 	if matched == nil {
 		return DiffResult{}, errors.New("git commit diff not found for path")
 	}
-	content, err := runGit(ctx, repo.repoRoot, "show", "--format=", "--no-ext-diff", "--find-renames", commit, "--", repoPath)
+	contentBytes, err := runGitBytes(ctx, repo.repoRoot, "show", "--format=", "--no-ext-diff", "--find-renames", commit, "--", repoPath)
 	if err != nil {
 		return DiffResult{}, err
 	}
+	content := decodeGitDiffOutput(contentBytes, filepath.Ext(matched.Path))
 	stat := stats[matched.Path]
 	return DiffResult{
 		Path:      path,
@@ -662,17 +664,19 @@ func (r repoContext) diffContent(ctx context.Context, item StatusItem) (string, 
 		return diffAgainstEmptyFile(ctx, r.repoRoot, target)
 	}
 	parts := make([]string, 0, 2)
-	cached, err := runGit(ctx, r.repoRoot, "diff", "--no-ext-diff", "--cached", "--", repoPath)
+	cachedBytes, err := runGitBytes(ctx, r.repoRoot, "diff", "--no-ext-diff", "--cached", "--", repoPath)
 	if err != nil {
 		return "", err
 	}
+	cached := decodeGitDiffOutput(cachedBytes, filepath.Ext(item.Path))
 	if strings.TrimSpace(cached) != "" {
 		parts = append(parts, strings.TrimRight(cached, "\n"))
 	}
-	workingTree, err := runGit(ctx, r.repoRoot, "diff", "--no-ext-diff", "--", repoPath)
+	workingTreeBytes, err := runGitBytes(ctx, r.repoRoot, "diff", "--no-ext-diff", "--", repoPath)
 	if err != nil {
 		return "", err
 	}
+	workingTree := decodeGitDiffOutput(workingTreeBytes, filepath.Ext(item.Path))
 	if strings.TrimSpace(workingTree) != "" {
 		parts = append(parts, strings.TrimRight(workingTree, "\n"))
 	}
@@ -920,11 +924,11 @@ func diffAgainstEmptyFile(ctx context.Context, repoRoot, targetPath string) (str
 	if err != nil {
 		// git diff --no-index returns exit code 1 when differences exist.
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return string(out), nil
+			return decodeGitDiffOutput(out, filepath.Ext(targetPath)), nil
 		}
 		return "", formatGitError(err, out)
 	}
-	return string(out), nil
+	return decodeGitDiffOutput(out, filepath.Ext(targetPath)), nil
 }
 
 func countFileLines(path string) (int, error) {
@@ -943,6 +947,14 @@ func countFileLines(path string) (int, error) {
 }
 
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := runGitBytes(ctx, dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func runGitBytes(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	// Add timeout if not already set (30 seconds for Windows compatibility)
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -953,9 +965,19 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("[git] command.error dir=%q args=%q err=%v output=%q", dir, append([]string{"-C", dir}, args...), err, strings.TrimSpace(string(out)))
-		return "", formatGitError(err, out)
+		return nil, formatGitError(err, out)
 	}
-	return string(out), nil
+	return out, nil
+}
+
+func decodeGitDiffOutput(out []byte, ext string) string {
+	if utf8.Valid(out) {
+		return string(out)
+	}
+	if decoded, _, ok := fs.TryDecodeText(out, ext); ok {
+		return decoded
+	}
+	return string(out)
 }
 
 func formatGitError(err error, output []byte) error {

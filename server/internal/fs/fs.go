@@ -395,7 +395,7 @@ func (r RootInfo) ReadFile(pathRel string, maxBytes int64, cursor int64, readMod
 	encoding := "utf-8"
 	content := string(buf)
 	if !utf8.Valid(buf) {
-		if decoded, detectedEncoding, ok := tryDecodeText(buf, ext); ok {
+		if decoded, detectedEncoding, ok := TryDecodeText(buf, ext); ok {
 			encoding = detectedEncoding
 			content = decoded
 		} else {
@@ -613,7 +613,7 @@ func trimTailForDecoding(buf []byte, ext string, bom string) []byte {
 	return buf
 }
 
-func tryDecodeText(buf []byte, ext string) (string, string, bool) {
+func TryDecodeText(buf []byte, ext string) (string, string, bool) {
 	// Only attempt legacy decoding for common text file types.
 	if !isTextLikeExt(ext) {
 		return "", "", false
