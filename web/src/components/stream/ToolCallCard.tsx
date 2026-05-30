@@ -36,7 +36,7 @@ const toolIcons: Record<string, string> = {
   other: "🔧",
 };
 
-function renderToolIcon(kind: string): React.ReactNode {
+export function renderToolIcon(kind: string): React.ReactNode {
   if (kind === "read") {
     return (
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 32 32" aria-hidden="true" style={{ color: "#2f80ed" }}>
@@ -91,9 +91,9 @@ function renderToolIcon(kind: string): React.ReactNode {
     return (
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 80 80" aria-hidden="true">
         <g fill="none">
-          <path fill="#2f80ed" d="M38.4 22.742a2 2 0 1 0 0-4zm23.6 19.6a2 2 0 1 0-4 0zm-52-19.6v44h4v-44zm4 48h44v-4H14zm24.4-52H14v4h24.4zm23.6 48v-24.4h-4v24.4zm-4 4a4 4 0 0 0 4-4h-4zm-48-4a4 4 0 0 0 4 4v-4zm4-44v-4a4 4 0 0 0-4 4z" />
-          <path fill="#9b51e0" fillRule="evenodd" d="M68.015 21.897c.78-.78.78-2.044 0-2.824l-5.657-5.657a2.003 2.003 0 0 0-2.833 0L30.7 42.242a16 16 0 0 0-4.555 9.267l-.308 2.384l-.125.974a.758.758 0 0 0 .848.849l.975-.126l2.384-.307a16 16 0 0 0 9.266-4.555z" clipRule="evenodd" />
-          <path stroke="#f2c94c" strokeLinejoin="round" strokeWidth="4" d="m52.147 20.804l8.48 8.48" />
+          <path fill="#2f80ed" stroke="#2f80ed" strokeLinejoin="round" strokeWidth="1.6" d="M38.4 22.742a2 2 0 1 0 0-4zm23.6 19.6a2 2 0 1 0-4 0zm-52-19.6v44h4v-44zm4 48h44v-4H14zm24.4-52H14v4h24.4zm23.6 48v-24.4h-4v24.4zm-4 4a4 4 0 0 0 4-4h-4zm-48-4a4 4 0 0 0 4 4v-4zm4-44v-4a4 4 0 0 0-4 4z" />
+          <path fill="#9b51e0" stroke="#9b51e0" strokeLinejoin="round" strokeWidth="1.4" fillRule="evenodd" d="M68.015 21.897c.78-.78.78-2.044 0-2.824l-5.657-5.657a2.003 2.003 0 0 0-2.833 0L30.7 42.242a16 16 0 0 0-4.555 9.267l-.308 2.384l-.125.974a.758.758 0 0 0 .848.849l.975-.126l2.384-.307a16 16 0 0 0 9.266-4.555z" clipRule="evenodd" />
+          <path stroke="#f2c94c" strokeLinejoin="round" strokeWidth="5.2" d="m52.147 20.804l8.48 8.48" />
         </g>
       </svg>
     );
@@ -101,7 +101,7 @@ function renderToolIcon(kind: string): React.ReactNode {
   if (kind === "execute") {
     return (
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 80 80" aria-hidden="true">
-        <g fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4">
+        <g fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="5.4">
           <path stroke="#9b51e0" d="m15 24l17.16 15.253a1 1 0 0 1 0 1.494L15 56" />
           <path stroke="#2f80ed" d="M65 56H41" />
         </g>

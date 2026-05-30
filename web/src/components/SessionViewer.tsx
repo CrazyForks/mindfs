@@ -2,7 +2,7 @@ import React, { memo, useEffect, useRef, useState } from "react";
 import { useSessionStream, type TimelineItem } from "../hooks/useSessionStream";
 import type { TodoUpdate } from "../services/session";
 import { ThinkingBlock } from "./stream/ThinkingBlock";
-import { ToolCallCard } from "./stream/ToolCallCard";
+import { ToolCallCard, renderToolIcon } from "./stream/ToolCallCard";
 import { AgentIcon } from "./AgentIcon";
 import { InlineTokenText } from "./InlineTokenText";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -66,6 +66,7 @@ type SessionViewerProps = {
     toolUseId: string;
     answers: Record<string, string>;
   }) => void | Promise<void>;
+  onEditUserMessage?: (content: string) => void;
   targetSeqRequestKey?: string | number;
 };
 
@@ -785,6 +786,7 @@ function SessionViewerInner({
   onRootClick,
   onRemoveRelatedFile,
   onAskUserAnswer,
+  onEditUserMessage,
 }: SessionViewerProps) {
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [relatedFilesCollapsed, setRelatedFilesCollapsed] = useState(false);
@@ -1341,6 +1343,17 @@ if (useInnerScrollContainer && !container) {
                 />
               ) : null}
               <span>{time}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  onEditUserMessage?.(item.content || "");
+                }}
+                style={userMetaButtonStyle}
+                aria-label="编辑消息"
+                title="编辑消息"
+              >
+                {renderToolIcon("edit")}
+              </button>
               {promptSaved ? (
                 <span
                   aria-label="已添加提示词"

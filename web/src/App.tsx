@@ -1150,6 +1150,10 @@ export function App({ onGoHome }: AppProps) {
   const [e2eeSecretInput, setE2eeSecretInput] = useState("");
   const [e2eePromptError, setE2eePromptError] = useState("");
   const [e2eePromptBusy, setE2eePromptBusy] = useState(false);
+  const [editDraftRequest, setEditDraftRequest] = useState<{
+    id: number;
+    content: string;
+  } | null>(null);
   const [entriesByPath, setEntriesByPath] = useState<
     Record<string, FileEntry[]>
   >({});
@@ -4348,6 +4352,16 @@ export function App({ onGoHome }: AppProps) {
         const isActuallyRoot = params.isRoot === true;
         const root = isActuallyRoot ? path : rootParam;
         const expandedKey = isActuallyRoot ? path : `${root}:${path}`;
+        const preserveCollapsedRoot =
+          isActuallyRoot &&
+          suppressTreeExpand &&
+          !expandedRef.current.includes(expandedKey);
+        const restoreSuppressedRootExpansion = () => {
+          if (!preserveCollapsedRoot) {
+            return;
+          }
+          setExpanded((prev) => prev.filter((k) => k !== expandedKey));
+        };
         const preserveQuery = !!params.preservePluginQuery;
         const nextPluginQuery = preserveQuery
           ? parsePluginQuery(window.location.search)
@@ -4479,6 +4493,7 @@ export function App({ onGoHome }: AppProps) {
             if (restored) {
               void loadSessionsForRoot(path, { replace: true, force: true });
               await refreshTreeDir(path, ".", false);
+              restoreSuppressedRootExpansion();
               return;
             }
           }
@@ -4486,6 +4501,7 @@ export function App({ onGoHome }: AppProps) {
           setExpanded((prev) => Array.from(new Set([...prev, expandedKey])));
         }
         await loadDirectoryView(path, isActuallyRoot);
+        restoreSuppressedRootExpansion();
       },
     }),
     [
@@ -5582,6 +5598,7 @@ export function App({ onGoHome }: AppProps) {
         path: path === "." ? root : path,
         root,
         isRoot: path === ".",
+        suppressTreeExpand: path === ".",
       });
     },
     [file, actionHandlers],
@@ -5606,6 +5623,7 @@ export function App({ onGoHome }: AppProps) {
         path: path === "." ? root : path,
         root,
         isRoot: path === ".",
+        suppressTreeExpand: path === ".",
       });
     },
     [actionHandlers],
@@ -5619,6 +5637,7 @@ export function App({ onGoHome }: AppProps) {
         path: path === "." ? root : path,
         root,
         isRoot: path === ".",
+        suppressTreeExpand: path === ".",
       });
     },
     [actionHandlers],
@@ -7340,6 +7359,13 @@ export function App({ onGoHome }: AppProps) {
     [],
   );
 
+  const handleEditUserMessage = useCallback((content: string) => {
+    setEditDraftRequest((prev) => ({
+      id: (prev?.id || 0) + 1,
+      content,
+    }));
+  }, []);
+
   const currentFileScrollKey = buildFileScrollKey(
     file?.root || currentRootId,
     file?.path,
@@ -7364,6 +7390,7 @@ export function App({ onGoHome }: AppProps) {
           root,
           isRoot: true,
           forceDirectory: true,
+          suppressTreeExpand: true,
         });
       }}
       onRemoveRelatedFile={(path) =>
@@ -7374,6 +7401,7 @@ export function App({ onGoHome }: AppProps) {
         )
       }
       onAskUserAnswer={handleAskUserAnswer}
+      onEditUserMessage={handleEditUserMessage}
     />
   );
 
@@ -8422,6 +8450,7 @@ export function App({ onGoHome }: AppProps) {
             canOpenSessionDrawer={canOpenSessionDrawer}
             sessionDrawerOpen={isDrawerOpen}
             detachedBoundSession={detachedBoundSession}
+            editDraftRequest={editDraftRequest}
             onSendMessage={handleSendMessage}
             onCancelCurrentTurn={handleCancelCurrentTurn}
             mobileEnterKeySends={mobileEnterKeySends}
@@ -8485,6 +8514,7 @@ export function App({ onGoHome }: AppProps) {
                     root,
                     isRoot: true,
                     forceDirectory: true,
+                    suppressTreeExpand: true,
                   });
                 }}
                 onRemoveRelatedFile={(path) =>
@@ -8495,6 +8525,7 @@ export function App({ onGoHome }: AppProps) {
                   )
                 }
                 onAskUserAnswer={handleAskUserAnswer}
+                onEditUserMessage={handleEditUserMessage}
               />
             ) : (
               <div style={{ padding: "40px", textAlign: "center" }}>

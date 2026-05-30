@@ -56,6 +56,10 @@ type ActionBarProps = {
   canOpenSessionDrawer?: boolean;
   sessionDrawerOpen?: boolean;
   detachedBoundSession?: boolean;
+  editDraftRequest?: {
+    id: number;
+    content: string;
+  } | null;
   mobileEnterKeySends?: boolean;
   onSendMessage?: (
     message: string,
@@ -307,6 +311,7 @@ export function ActionBar({
   canOpenSessionDrawer = false,
   sessionDrawerOpen = false,
   detachedBoundSession = false,
+  editDraftRequest = null,
   onSendMessage,
   onCancelCurrentTurn,
   onNewSession,
@@ -568,6 +573,19 @@ export function ActionBar({
     const height = editorRef.current?.getHeight() || 44;
     setIsMultiLine(height > 50);
   }, []);
+
+  useEffect(() => {
+    if (!editDraftRequest) {
+      return;
+    }
+    const nextText = editDraftRequest.content || "";
+    editorRef.current?.setText(nextText);
+    setSerializedInput(nextText);
+    setActiveToken(null);
+    setCandidates([]);
+    setActiveCandidateIndex(0);
+    requestAnimationFrame(syncEditorHeight);
+  }, [editDraftRequest, syncEditorHeight]);
 
   const appendPendingAttachments = useCallback((files: File[]) => {
     if (files.length === 0) {
