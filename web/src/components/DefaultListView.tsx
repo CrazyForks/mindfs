@@ -10,6 +10,26 @@ import {
 
 type DirectorySortControlValue = DirectorySortMode | "inherit";
 
+const ChevronRight = ({ isOpen }: { isOpen: boolean }) => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{
+      transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+      transition: "transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)",
+      color: isOpen ? "var(--text-primary)" : "#9ca3af",
+    }}
+  >
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
 type DefaultListViewProps = {
   root?: string;
   path?: string;
@@ -329,6 +349,7 @@ export function DefaultListView({
   const rootNameInputRef = React.useRef<HTMLInputElement>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const [isSortMenuOpen, setIsSortMenuOpen] = React.useState(false);
   const [editingRoot, setEditingRoot] = React.useState(false);
   const [rootDraft, setRootDraft] = React.useState(root || "");
   const [rootRenaming, setRootRenaming] = React.useState(false);
@@ -437,7 +458,15 @@ export function DefaultListView({
           <div ref={menuRef} style={{ position: "relative" }}>
             <button
               type="button"
-              onClick={() => setIsMenuOpen((open) => !open)}
+              onClick={() => {
+                setIsMenuOpen((open) => {
+                  const nextOpen = !open;
+                  if (nextOpen) {
+                    setIsSortMenuOpen(false);
+                  }
+                  return nextOpen;
+                });
+              }}
               aria-label="打开目录菜单"
               style={{
                 width: "28px",
@@ -474,46 +503,47 @@ export function DefaultListView({
                   zIndex: 20,
                 }}
               >
-                <div style={{ padding: "4px 8px", fontSize: "11px", color: "var(--text-secondary)" }}>当前目录排序</div>
                 <button
                   type="button"
-                  onClick={() => {
-                    onSortModeChange?.("inherit");
-                    setIsMenuOpen(false);
-                  }}
+                  onClick={() => setIsSortMenuOpen((open) => !open)}
                   style={{
                     width: "100%",
                     border: "none",
-                    background: sortControlValue === "inherit" ? "var(--selection-bg)" : "transparent",
-                    color: sortControlValue === "inherit" ? "var(--accent-color)" : "var(--text-primary)",
+                    background: "transparent",
+                    color: "var(--text-primary)",
                     borderRadius: "8px",
                     padding: "8px 10px",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "space-between",
+                    gap: "8px",
                     textAlign: "left",
                     cursor: "pointer",
                     fontSize: "12px",
                   }}
+                  aria-expanded={isSortMenuOpen}
                 >
-                  <span>跟随全局</span>
-                  <span style={{ fontSize: "11px", opacity: sortControlValue === "inherit" ? 1 : 0 }}>✓</span>
+                  <span style={{ flex: 1 }}>当前排序</span>
+                  <span style={{ color: "var(--text-secondary)", fontSize: "11px" }}>
+                    {sortControlValue === "inherit"
+                      ? "跟随全局"
+                      : DIRECTORY_SORT_OPTIONS.find((option) => option.value === sortControlValue)?.label || "默认"}
+                  </span>
+                  <ChevronRight isOpen={isSortMenuOpen} />
                 </button>
-                {DIRECTORY_SORT_OPTIONS.map((option) => {
-                  const active = sortControlValue === option.value;
-                  return (
+                {isSortMenuOpen ? (
+                  <>
                     <button
-                      key={option.value}
                       type="button"
                       onClick={() => {
-                        onSortModeChange?.(option.value as DirectorySortControlValue);
+                        onSortModeChange?.("inherit");
                         setIsMenuOpen(false);
+                        setIsSortMenuOpen(false);
                       }}
                       style={{
                         width: "100%",
                         border: "none",
-                        background: active ? "var(--selection-bg)" : "transparent",
-                        color: active ? "var(--accent-color)" : "var(--text-primary)",
+                        background: sortControlValue === "inherit" ? "var(--selection-bg)" : "transparent",
+                        color: sortControlValue === "inherit" ? "var(--accent-color)" : "var(--text-primary)",
                         borderRadius: "8px",
                         padding: "8px 10px",
                         display: "flex",
@@ -524,11 +554,42 @@ export function DefaultListView({
                         fontSize: "12px",
                       }}
                     >
-                      <span>{option.label}</span>
-                      <span style={{ fontSize: "11px", opacity: active ? 1 : 0 }}>✓</span>
+                      <span>跟随全局</span>
+                      <span style={{ fontSize: "11px", opacity: sortControlValue === "inherit" ? 1 : 0 }}>✓</span>
                     </button>
-                  );
-                })}
+                    {DIRECTORY_SORT_OPTIONS.map((option) => {
+                      const active = sortControlValue === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            onSortModeChange?.(option.value as DirectorySortControlValue);
+                            setIsMenuOpen(false);
+                            setIsSortMenuOpen(false);
+                          }}
+                          style={{
+                            width: "100%",
+                            border: "none",
+                            background: active ? "var(--selection-bg)" : "transparent",
+                            color: active ? "var(--accent-color)" : "var(--text-primary)",
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                          }}
+                        >
+                          <span>{option.label}</span>
+                          <span style={{ fontSize: "11px", opacity: active ? 1 : 0 }}>✓</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                ) : null}
                 <div style={{ height: "1px", background: "var(--border-color)", margin: "6px 4px" }} />
                 {isRootView ? (
                   <>
