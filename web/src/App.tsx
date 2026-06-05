@@ -8277,6 +8277,8 @@ export function App({ onGoHome }: AppProps) {
         rightOpen={isRightOpen}
         onCloseLeft={() => setIsLeftOpen(false)}
         onCloseRight={() => setIsRightOpen(false)}
+        onOpenLeft={() => setIsLeftOpen(true)}
+        onOpenRight={() => setIsRightOpen(true)}
         sidebar={
           <FileTree
             entries={rootEntries}
@@ -8355,57 +8357,6 @@ export function App({ onGoHome }: AppProps) {
               position: "relative",
             }}
           >
-            {!isMobile && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "10px",
-                  left: isMobile ? "10px" : isLeftOpen ? "-40px" : "10px",
-                  right: isMobile ? "10px" : isRightOpen ? "-40px" : "10px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  pointerEvents: "none",
-                  zIndex: 100,
-                }}
-              >
-                <button
-                  onClick={() => setIsLeftOpen(!isLeftOpen)}
-                  style={{
-                    pointerEvents: "auto",
-                    background: "var(--content-bg)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "8px",
-                    width: "32px",
-                    height: "32px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    opacity: isLeftOpen && !isMobile ? 0 : 1,
-                  }}
-                >
-                  📁
-                </button>
-                <button
-                  onClick={() => setIsRightOpen(!isRightOpen)}
-                  style={{
-                    pointerEvents: "auto",
-                    background: "var(--content-bg)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "8px",
-                    width: "32px",
-                    height: "32px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    opacity: isRightOpen && !isMobile ? 0 : 1,
-                  }}
-                >
-                  🕒
-                </button>
-              </div>
-            )}
             <div
               style={{
                 flex: 1,
