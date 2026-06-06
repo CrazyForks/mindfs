@@ -307,7 +307,8 @@ function AnsiOutput({ text, onRendered }: { text: string; onRendered?: () => voi
         marginTop: "10px",
         padding: "8px",
         borderRadius: "8px",
-        background: "#0f172a",
+        background: "var(--mindfs-code-bg, #f8fafc)",
+        border: "1px solid var(--mindfs-code-border, var(--border-color))",
         overflowX: "auto",
         overflowY: "hidden",
         width: "100%",
@@ -319,7 +320,7 @@ function AnsiOutput({ text, onRendered }: { text: string; onRendered?: () => voi
         style={{
           margin: 0,
           minWidth: "max-content",
-          color: "#e5e7eb",
+          color: "var(--mindfs-code-text, var(--text-primary))",
           fontFamily: terminalFontFamily,
           fontSize: "12px",
           lineHeight: 1.6,

@@ -6,6 +6,11 @@ import { fetchAgents, fetchShells, type AgentStatus, type ShellStatus } from "..
 import { fetchCandidates, type CandidateItem } from "../services/candidates";
 import { reportError } from "../services/error";
 import { uploadFiles } from "../services/upload";
+import {
+  APPEARANCE_CHANGE_EVENT,
+  getAppearanceMode,
+  getEffectiveAppearanceMode,
+} from "../services/appearance";
 import TokenEditor, {
   type TokenEditorHandle,
 } from "./editor/TokenEditor";
@@ -339,7 +344,7 @@ export function ActionBar({
   const [cancelling, setCancelling] = useState(false);
   const [isMultiLine, setIsMultiLine] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
-  const [isDark, setIsDark] = useState(window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const [isDark, setIsDark] = useState(() => getEffectiveAppearanceMode() === "dark");
   const [blurPlaceholder, setBlurPlaceholder] = useState(
     () => chatBlurPlaceholders[Math.floor(Math.random() * chatBlurPlaceholders.length)] || modePlaceholders.chat,
   );
@@ -366,9 +371,25 @@ export function ActionBar({
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (e: MediaQueryListEvent) => setIsDark(e.matches);
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
+    const syncAppearance = () => setIsDark(getEffectiveAppearanceMode() === "dark");
+    const onSystemChange = () => {
+      if (getAppearanceMode() === "system") {
+        syncAppearance();
+      }
+    };
+    window.addEventListener(APPEARANCE_CHANGE_EVENT, syncAppearance);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onSystemChange);
+      return () => {
+        window.removeEventListener(APPEARANCE_CHANGE_EVENT, syncAppearance);
+        media.removeEventListener("change", onSystemChange);
+      };
+    }
+    media.addListener(onSystemChange);
+    return () => {
+      window.removeEventListener(APPEARANCE_CHANGE_EVENT, syncAppearance);
+      media.removeListener(onSystemChange);
+    };
   }, []);
 
   useEffect(() => {
