@@ -69,7 +69,7 @@ func NewStore(root fs.RootInfo) *Store {
 func (s *Store) List() ([]Task, error) {
 	data, err := s.root.ReadMetaFile(tasksMetaFile)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return []Task{}, nil
 		}
 		return nil, err

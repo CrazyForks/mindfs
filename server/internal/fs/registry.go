@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"mindfs/server/internal/apperr"
 	configpkg "mindfs/server/internal/config"
 )
 
@@ -44,7 +45,7 @@ func (r *Registry) Load() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return apperr.Wrap("read", r.path, err)
 	}
 	var stored struct {
 		Dirs  []RootInfo `json:"dirs"`
@@ -91,7 +92,7 @@ func (r *Registry) saveLocked() error {
 		return errors.New("registry path required")
 	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
-		return err
+		return apperr.Wrap("mkdir", filepath.Dir(r.path), err)
 	}
 	recs := make([]RootInfo, 0, len(r.dirs))
 	for _, id := range r.order {
@@ -103,7 +104,7 @@ func (r *Registry) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(r.path, payload, 0o644)
+	return apperr.Wrap("write", r.path, os.WriteFile(r.path, payload, 0o644))
 }
 
 func (r *Registry) List() []RootInfo {

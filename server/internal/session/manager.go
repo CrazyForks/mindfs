@@ -900,7 +900,7 @@ func (m *Manager) createSessionUnsafe(session *Session) error {
 	if statErr == nil {
 		return nil
 	}
-	if !os.IsNotExist(statErr) {
+	if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
 	return m.root.WriteMetaFile(path, []byte{})
@@ -1086,7 +1086,7 @@ func (m *Manager) loadExchanges(key string, afterSeq int) ([]Exchange, int, erro
 	}
 	payload, err := m.root.ReadMetaFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return []Exchange{}, 0, nil
 		}
 		return nil, 0, err
@@ -1163,7 +1163,7 @@ func (m *Manager) loadExchangeAuxEntries(key string, afterSeq int) ([]ExchangeAu
 	}
 	payload, err := m.root.ReadMetaFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return []ExchangeAux{}, nil
 		}
 		return nil, err
@@ -1553,7 +1553,7 @@ func (m *Manager) searchSessionContent(s *Session, qLower string) (SearchHit, bo
 	}
 	file, err := m.root.OpenMetaFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return SearchHit{}, false, nil
 		}
 		return SearchHit{}, false, err

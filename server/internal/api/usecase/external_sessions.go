@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agenttypes "mindfs/server/internal/agent/types"
+	"mindfs/server/internal/apperr"
 	"mindfs/server/internal/session"
 )
 
@@ -51,6 +52,10 @@ type ImportExternalSessionsBatchItem struct {
 	ImportedCount  int    `json:"imported_count,omitempty"`
 	Success        bool   `json:"success"`
 	Error          string `json:"error,omitempty"`
+	ErrorCode      string `json:"error_code,omitempty"`
+	ErrorDetail    string `json:"error_detail,omitempty"`
+	ErrorPath      string `json:"error_path,omitempty"`
+	ErrorOperation string `json:"error_operation,omitempty"`
 }
 
 type ImportExternalSessionsBatchOutput struct {
@@ -242,6 +247,12 @@ func (s *Service) ImportExternalSessionsBatch(ctx context.Context, in ImportExte
 		if err != nil {
 			item.Success = false
 			item.Error = err.Error()
+			if appErr, ok := apperr.Classify(err); ok {
+				item.ErrorCode = appErr.Code
+				item.ErrorDetail = appErr.Detail
+				item.ErrorPath = appErr.Path
+				item.ErrorOperation = appErr.Op
+			}
 			out.Items = append(out.Items, item)
 			continue
 		}

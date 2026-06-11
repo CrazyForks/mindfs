@@ -1074,29 +1074,24 @@ class SessionService {
     agent: string,
     options?: FetchExternalSessionsOptions,
   ): Promise<Session[]> {
-    try {
-      if (!rootId || !agent) {
-        return [];
-      }
-      const params = new URLSearchParams({ root: rootId, agent });
-      if (options?.beforeTime) {
-        params.set("before_time", options.beforeTime);
-      }
-      if (options?.afterTime) {
-        params.set("after_time", options.afterTime);
-      }
-      if (options?.filterBound) {
-        params.set("filter_bound", "true");
-      }
-      if (typeof options?.limit === "number" && options.limit > 0) {
-        params.set("limit", String(options.limit));
-      }
-      const data = await protectedJSON<any[]>(appURL("/api/sessions/external", params));
-      return Array.isArray(data) ? data : [];
-    } catch (err) {
-      console.error("[Session] Failed to fetch external sessions:", err);
+    if (!rootId || !agent) {
       return [];
     }
+    const params = new URLSearchParams({ root: rootId, agent });
+    if (options?.beforeTime) {
+      params.set("before_time", options.beforeTime);
+    }
+    if (options?.afterTime) {
+      params.set("after_time", options.afterTime);
+    }
+    if (options?.filterBound) {
+      params.set("filter_bound", "true");
+    }
+    if (typeof options?.limit === "number" && options.limit > 0) {
+      params.set("limit", String(options.limit));
+    }
+    const data = await protectedJSON<any[]>(appURL("/api/sessions/external", params));
+    return Array.isArray(data) ? data : [];
   }
 
   async importExternalSession(
@@ -1133,6 +1128,10 @@ class SessionService {
       imported_count?: number;
       success: boolean;
       error?: string;
+      error_code?: string;
+      error_detail?: string;
+      error_path?: string;
+      error_operation?: string;
     }>;
   } | null> {
     try {

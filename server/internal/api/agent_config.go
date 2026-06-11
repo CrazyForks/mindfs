@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"mindfs/server/internal/agent"
+	"mindfs/server/internal/apperr"
 	configpkg "mindfs/server/internal/config"
 )
 
@@ -107,7 +108,7 @@ func (h *HTTPHandler) handleAgentConfigBackupCreate(w http.ResponseWriter, r *ht
 		if errors.Is(err, errAgentConfigConflict) {
 			status = http.StatusConflict
 		}
-		respondError(w, status, errInvalidRequest(err.Error()))
+		respondError(w, status, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, entry)
@@ -121,7 +122,7 @@ func (h *HTTPHandler) handleAgentConfigBackupDelete(w http.ResponseWriter, r *ht
 	}
 	manifest, err := deleteAgentConfigBackup(id)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, errInvalidRequest(err.Error()))
+		respondError(w, http.StatusBadRequest, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id, "backups": manifest})
@@ -135,7 +136,7 @@ func (h *HTTPHandler) handleAgentConfigSwitch(w http.ResponseWriter, r *http.Req
 	}
 	entry, needsConfirm, err := switchAgentConfig(req, h.AppContext)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, errInvalidRequest(err.Error()))
+		respondError(w, http.StatusBadRequest, err)
 		return
 	}
 	if needsConfirm {
@@ -159,7 +160,7 @@ func (h *HTTPHandler) handleAgentRestart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := restartAgent(req.Agent, h.AppContext); err != nil {
-		respondError(w, http.StatusBadRequest, errInvalidRequest(err.Error()))
+		respondError(w, http.StatusBadRequest, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]any{
@@ -225,7 +226,7 @@ func createAgentConfigBackup(req agentConfigBackupRequest) (agentConfigManifestE
 		return agentConfigManifestEntry{}, errors.New("config source or environment variables required")
 	}
 	if err := os.RemoveAll(filepath.Join(configRoot, id)); err != nil {
-		return agentConfigManifestEntry{}, err
+		return agentConfigManifestEntry{}, apperr.Wrap("remove", filepath.Join(configRoot, id), err)
 	}
 	for index, source := range sources {
 		name := fmt.Sprintf("%03d-%s", index+1, filepath.Base(source))
@@ -295,7 +296,7 @@ func deleteAgentConfigBackup(id string) ([]agentConfigManifestEntry, error) {
 		return nil, err
 	}
 	if err := os.RemoveAll(filepath.Join(configRoot, id)); err != nil {
-		return nil, err
+		return nil, apperr.Wrap("remove", filepath.Join(configRoot, id), err)
 	}
 	envBackups, err := readAgentEnvBackups()
 	if err != nil {
@@ -342,7 +343,7 @@ func switchAgentConfig(req agentConfigSwitchRequest, app *AppContext) (agentConf
 			exists = true
 			break
 		} else if err != nil && !os.IsNotExist(err) {
-			return agentConfigManifestEntry{}, false, err
+			return agentConfigManifestEntry{}, false, apperr.Wrap("stat", sourcePath, err)
 		}
 	}
 	if exists && !req.ConfirmOverwrite {
@@ -465,7 +466,7 @@ func normalizeFileSources(input []string) ([]string, error) {
 		}
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, fmt.Errorf("config source not found: %s", path)
+			return nil, apperr.Wrap("stat", path, err)
 		}
 		if info.IsDir() {
 			return nil, fmt.Errorf("config source is a directory: %s", path)
@@ -585,14 +586,14 @@ func updateAgentConfigDefaults(agentName string, fileSources []string, envKeys [
 		return fmt.Errorf("agent not configured: %s", agentName)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return apperr.Wrap("mkdir", filepath.Dir(path), err)
 	}
 	payload, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	return os.WriteFile(path, payload, 0o644)
+	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
 }
 
 func updateAgentEnvConfig(agentName string, env map[string]string) error {
@@ -617,14 +618,14 @@ func updateAgentEnvConfig(agentName string, env map[string]string) error {
 		return fmt.Errorf("agent not configured: %s", agentName)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return apperr.Wrap("mkdir", filepath.Dir(path), err)
 	}
 	payload, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	return os.WriteFile(path, payload, 0o644)
+	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
 }
 
 func cloneStringMap(input map[string]string) map[string]string {
@@ -648,7 +649,7 @@ func readAgentConfigManifest() ([]agentConfigManifestEntry, error) {
 		if os.IsNotExist(err) {
 			return []agentConfigManifestEntry{}, nil
 		}
-		return nil, err
+		return nil, apperr.Wrap("read", path, err)
 	}
 	var manifest []agentConfigManifestEntry
 	if len(strings.TrimSpace(string(payload))) == 0 {
@@ -666,14 +667,14 @@ func writeAgentConfigManifest(manifest []agentConfigManifestEntry) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return apperr.Wrap("mkdir", filepath.Dir(path), err)
 	}
 	payload, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	return os.WriteFile(path, payload, 0o644)
+	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
 }
 
 func readAgentEnvBackups() (map[string][]string, error) {
@@ -686,7 +687,7 @@ func readAgentEnvBackups() (map[string][]string, error) {
 		if os.IsNotExist(err) {
 			return map[string][]string{}, nil
 		}
-		return nil, err
+		return nil, apperr.Wrap("read", path, err)
 	}
 	if len(strings.TrimSpace(string(payload))) == 0 {
 		return map[string][]string{}, nil
@@ -707,34 +708,34 @@ func writeAgentEnvBackups(env map[string][]string) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return apperr.Wrap("mkdir", filepath.Dir(path), err)
 	}
 	payload, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	return os.WriteFile(path, payload, 0o644)
+	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
 }
 
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return apperr.Wrap("open", src, err)
 	}
 	defer in.Close()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return apperr.Wrap("mkdir", filepath.Dir(dst), err)
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return apperr.Wrap("write", dst, err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		_ = out.Close()
-		return err
+		return apperr.Wrap("copy", dst, err)
 	}
-	return out.Close()
+	return apperr.Wrap("write", dst, out.Close())
 }
 
 func agentConfigRootDir() (string, error) {

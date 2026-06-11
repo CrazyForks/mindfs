@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"mindfs/server/internal/apperr"
 	"mindfs/server/internal/fs"
 	"mindfs/server/internal/gitview"
 	"mindfs/server/internal/session"
@@ -178,7 +179,7 @@ func (s *Service) SaveUploadedFiles(_ context.Context, in SaveUploadedFilesInput
 		return SaveUploadedFilesOutput{}, err
 	}
 	if err := os.MkdirAll(destAbs, 0o755); err != nil {
-		return SaveUploadedFilesOutput{}, err
+		return SaveUploadedFilesOutput{}, apperr.Wrap("mkdir", destAbs, err)
 	}
 
 	saved := make([]UploadedFile, 0, len(in.Files))
@@ -431,18 +432,18 @@ func saveUploadFile(destDir, destAbs string, file UploadFile) (UploadedFile, err
 			if os.IsExist(err) {
 				continue
 			}
-			return UploadedFile{}, err
+			return UploadedFile{}, apperr.Wrap("create", absPath, err)
 		}
 
 		size, copyErr := io.Copy(handle, file.Reader)
 		closeErr := handle.Close()
 		if copyErr != nil {
 			_ = os.Remove(absPath)
-			return UploadedFile{}, copyErr
+			return UploadedFile{}, apperr.Wrap("write", absPath, copyErr)
 		}
 		if closeErr != nil {
 			_ = os.Remove(absPath)
-			return UploadedFile{}, closeErr
+			return UploadedFile{}, apperr.Wrap("write", absPath, closeErr)
 		}
 
 		return UploadedFile{
@@ -640,7 +641,10 @@ func resolveManagedDirPath(registry Registry, raw string, create bool) (string, 
 	}
 	abs := filepath.Clean(raw)
 	info, err := os.Stat(abs)
-	if err != nil || !info.IsDir() {
+	if err != nil {
+		return "", apperr.Wrap("stat", abs, err)
+	}
+	if !info.IsDir() {
 		return "", errors.New("path must be a directory")
 	}
 	return abs, nil
@@ -660,7 +664,7 @@ func createManagedDir(registry Registry, name string) (string, error) {
 			}
 		}
 		if err := os.MkdirAll(abs, 0o755); err != nil {
-			return "", err
+			return "", apperr.Wrap("mkdir", abs, err)
 		}
 		return abs, nil
 	}
@@ -677,7 +681,7 @@ func createManagedDir(registry Registry, name string) (string, error) {
 	}
 	baseDir := filepath.Join(homeDir, "mindfs")
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
-		return "", err
+		return "", apperr.Wrap("mkdir", baseDir, err)
 	}
 
 	rootPath := filepath.Join(baseDir, trimmed)
@@ -698,11 +702,11 @@ func createManagedDir(registry Registry, name string) (string, error) {
 		}
 		return "", errors.New("root path already exists and is not a directory")
 	} else if !os.IsNotExist(err) {
-		return "", err
+		return "", apperr.Wrap("stat", rootPath, err)
 	}
 
 	if err := os.Mkdir(rootPath, 0o755); err != nil {
-		return "", err
+		return "", apperr.Wrap("mkdir", rootPath, err)
 	}
 	return cleanRootPath, nil
 }
@@ -772,7 +776,7 @@ func (s *Service) RenameManagedDir(_ context.Context, in RenameManagedDirInput) 
 	oldPath := filepath.Clean(root.RootPath)
 	if info, err := os.Stat(oldPath); err != nil || !info.IsDir() {
 		if err != nil {
-			return RenameManagedDirOutput{}, err
+			return RenameManagedDirOutput{}, apperr.Wrap("stat", oldPath, err)
 		}
 		return RenameManagedDirOutput{}, errors.New("root path must be a directory")
 	}
@@ -794,19 +798,19 @@ func (s *Service) RenameManagedDir(_ context.Context, in RenameManagedDirInput) 
 	if _, err := os.Stat(newPath); err == nil {
 		return RenameManagedDirOutput{}, errors.New("root path already exists")
 	} else if !os.IsNotExist(err) {
-		return RenameManagedDirOutput{}, err
+		return RenameManagedDirOutput{}, apperr.Wrap("stat", newPath, err)
 	}
 
 	if releaser, ok := s.Registry.(rootResourceReleaser); ok {
 		releaser.ReleaseRootResources(rootID)
 	}
 	if err := os.Rename(oldPath, newPath); err != nil {
-		return RenameManagedDirOutput{}, err
+		return RenameManagedDirOutput{}, apperr.Wrap("rename", oldPath, err)
 	}
 	dir, err := s.Registry.RenameRoot(rootID, nextName, newPath)
 	if err != nil {
 		if rollbackErr := os.Rename(newPath, oldPath); rollbackErr != nil {
-			return RenameManagedDirOutput{}, fmt.Errorf("registry rename failed: %w; rollback failed: %v", err, rollbackErr)
+			return RenameManagedDirOutput{}, fmt.Errorf("registry rename failed: %w; rollback failed: %v", err, apperr.Wrap("rename", newPath, rollbackErr))
 		}
 		return RenameManagedDirOutput{}, err
 	}

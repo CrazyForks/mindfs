@@ -1053,6 +1053,7 @@ export function App({ onGoHome }: AppProps) {
   const [loadingOlderExternalSessions, setLoadingOlderExternalSessions] =
     useState(false);
   const [loadingExternalSessions, setLoadingExternalSessions] = useState(false);
+  const [externalSessionsError, setExternalSessionsError] = useState("");
   const [externalSelectedKey, setExternalSelectedKey] = useState("");
   const [externalImportAgent, setExternalImportAgent] = useState("");
   const externalImportAgentRef = useRef("");
@@ -3577,6 +3578,7 @@ export function App({ onGoHome }: AppProps) {
       if (!rootID || !agent) {
         setExternalSessions([]);
         setHasMoreExternalSessions(false);
+        setExternalSessionsError("");
         return;
       }
       try {
@@ -3593,12 +3595,22 @@ export function App({ onGoHome }: AppProps) {
             limit: 50,
           },
         )) as SessionItem[];
+        setExternalSessionsError("");
         setHasMoreExternalSessions(next.length >= 50);
         if (options?.replace || (!options?.beforeTime && !options?.afterTime)) {
           setExternalSessions(next);
           return;
         }
         setExternalSessions((prev) => mergeSessionItems(prev, next));
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : String(err || "加载可导入会话失败");
+        setExternalSessionsError(message || "加载可导入会话失败");
+        if (options?.replace || (!options?.beforeTime && !options?.afterTime)) {
+          setExternalSessions([]);
+          setHasMoreExternalSessions(false);
+        }
+        console.error("[Session] Failed to fetch external sessions:", err);
       } finally {
         setLoadingExternalSessions(false);
       }
@@ -3609,6 +3621,7 @@ export function App({ onGoHome }: AppProps) {
   const exitImportMode = useCallback(() => {
     setSessionListMode("local");
     setExternalSelectedKey("");
+    setExternalSessionsError("");
     setSelectedExternalImportKeys(new Set());
     setImportingExternalSessionKeys(new Set());
     setImportMenuOpen(false);
@@ -3623,6 +3636,7 @@ export function App({ onGoHome }: AppProps) {
       }
       setExternalImportAgent(trimmedAgent);
       setExternalSelectedKey("");
+      setExternalSessionsError("");
       setSelectedExternalImportKeys(new Set());
       setImportingExternalSessionKeys(new Set());
       setSessionListMode("import");
@@ -3713,7 +3727,11 @@ export function App({ onGoHome }: AppProps) {
       const results = imported?.items || [];
       const successItems = results.filter((item) => item.success && item.session_key);
       if (!imported || !successItems.length) {
-        reportError("session.import_failed", "导入会话失败");
+        const firstError = results.find((item) => !item.success)?.error;
+        reportError(
+          "session.import_failed",
+          firstError ? `导入会话失败：${firstError}` : "导入会话失败",
+        );
         return;
       }
       setConfirmingExternalImport(false);
@@ -3725,9 +3743,13 @@ export function App({ onGoHome }: AppProps) {
           .filter(Boolean),
       );
       if (failedKeys.size > 0) {
+        const firstError = results.find((item) => !item.success)?.error;
+        const message = firstError
+          ? `部分会话导入失败：${failedKeys.size} 项。${firstError}`
+          : `部分会话导入失败：${failedKeys.size} 项`;
         reportError(
           "session.import_failed",
-          `部分会话导入失败：${failedKeys.size} 项`,
+          message,
         );
       }
       setSelectedExternalImportKeys(failedKeys);
@@ -8477,6 +8499,7 @@ export function App({ onGoHome }: AppProps) {
         filterBound={externalFilterBound}
         headerAction={sessionImportMenu}
         loading={loadingExternalSessions}
+        error={externalSessionsError}
         loadingOlder={loadingOlderExternalSessions}
         confirmingImport={confirmingExternalImport}
         hasMore={hasMoreExternalSessions}

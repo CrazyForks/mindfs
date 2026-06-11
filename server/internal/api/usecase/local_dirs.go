@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"mindfs/server/internal/apperr"
 )
 
 type ListLocalDirsInput struct {
@@ -47,7 +49,7 @@ func (s *Service) ListLocalDirs(_ context.Context, in ListLocalDirsInput) (ListL
 	}
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return ListLocalDirsOutput{}, err
+		return ListLocalDirsOutput{}, apperr.Wrap("stat", absPath, err)
 	}
 	if !info.IsDir() {
 		return ListLocalDirsOutput{}, errors.New("path is not a directory")
@@ -55,7 +57,7 @@ func (s *Service) ListLocalDirs(_ context.Context, in ListLocalDirsInput) (ListL
 	rootPathMap := s.localDirRootPathMap()
 	entries, err := os.ReadDir(absPath)
 	if err != nil {
-		return ListLocalDirsOutput{}, err
+		return ListLocalDirsOutput{}, apperr.Wrap("list", absPath, err)
 	}
 	items := make([]LocalDirItem, 0, len(entries))
 	for _, entry := range entries {

@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"mindfs/server/internal/apperr"
+
 	agenttypes "mindfs/server/internal/agent/types"
 )
 
@@ -162,6 +164,9 @@ func (i *Importer) scanSessionFiles(ctx context.Context, before, after time.Time
 		}
 		item, ok, err := inspectCodexSessionFile(candidate.Path)
 		if err != nil {
+			if apperr.IsPermission(err) {
+				return nil, err
+			}
 			log.Printf("[agent/codex/importer] inspect session file failed path=%s err=%v", candidate.Path, err)
 			continue
 		}
@@ -200,6 +205,9 @@ func sortedSessionJSONLFiles(baseDir string) ([]sessionFileCandidate, error) {
 	items := make([]sessionFileCandidate, 0)
 	err := filepath.WalkDir(baseDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if apperr.IsPermission(walkErr) {
+				return apperr.Wrap("walk", path, walkErr)
+			}
 			return nil
 		}
 		if d == nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
@@ -207,6 +215,9 @@ func sortedSessionJSONLFiles(baseDir string) ([]sessionFileCandidate, error) {
 		}
 		info, err := d.Info()
 		if err != nil {
+			if apperr.IsPermission(err) {
+				return apperr.Wrap("stat", path, err)
+			}
 			return nil
 		}
 		items = append(items, sessionFileCandidate{
@@ -255,6 +266,9 @@ func readCodexSessionTitles(path string) map[string]string {
 	titles := make(map[string]string)
 	file, err := os.Open(path)
 	if err != nil {
+		if apperr.IsPermission(err) {
+			log.Printf("[agent/codex/importer] read title index failed path=%s err=%v", path, err)
+		}
 		return titles
 	}
 	defer file.Close()
@@ -281,7 +295,7 @@ func readCodexSessionTitles(path string) map[string]string {
 func inspectCodexSessionFile(path string) (codexSessionFile, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return codexSessionFile{}, false, err
+		return codexSessionFile{}, false, apperr.Wrap("open", path, err)
 	}
 	defer file.Close()
 
@@ -343,7 +357,7 @@ func inspectCodexSessionFile(path string) (codexSessionFile, bool, error) {
 func readCodexImportedExchanges(path string, after time.Time) ([]agenttypes.ImportedExchange, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, apperr.Wrap("open", path, err)
 	}
 	defer file.Close()
 

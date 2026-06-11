@@ -17,6 +17,7 @@ type ExternalSessionListProps = {
   onConfirmImport?: () => void;
   onLoadOlder?: () => void;
   loading?: boolean;
+  error?: string;
   loadingOlder?: boolean;
   confirmingImport?: boolean;
   hasMore?: boolean;
@@ -38,6 +39,7 @@ export function ExternalSessionList({
   onConfirmImport,
   onLoadOlder,
   loading = false,
+  error = "",
   loadingOlder = false,
   confirmingImport = false,
   hasMore = false,
@@ -103,6 +105,8 @@ export function ExternalSessionList({
           <div style={emptyStyle}>正在加载可导入会话...</div>
         ) : !selectedAgent ? (
           <div style={emptyStyle}>选择一个 Agent 查看可导入会话</div>
+        ) : error && !sessions.length ? (
+          <div style={errorStyle}>{error}</div>
         ) : !sessions.length ? (
           <div style={emptyStyle}>
             {filterBound
@@ -111,6 +115,7 @@ export function ExternalSessionList({
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            {error ? <div style={errorStyle}>{error}</div> : null}
             {sessions.map((session) => (
               <ExternalSessionCard
                 key={session.key}
@@ -357,6 +362,12 @@ const emptyStyle: React.CSSProperties = {
   fontSize: "12px",
   color: "var(--text-secondary)",
   padding: "12px 8px",
+};
+
+const errorStyle: React.CSSProperties = {
+  ...emptyStyle,
+  color: "var(--danger-color, #b42318)",
+  whiteSpace: "pre-wrap",
 };
 
 function iconButtonStyle(withGap: boolean): React.CSSProperties {
