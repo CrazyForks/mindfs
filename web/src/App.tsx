@@ -4101,6 +4101,43 @@ export function App({ onGoHome }: AppProps) {
     ],
   );
 
+  const handleRunAgentLifecycleCommand = useCallback(
+    async (agentName: string, action: "install" | "update", commands: string[]) => {
+      const activeRoot = currentRootIdRef.current;
+      if (!activeRoot) {
+        throw new Error("当前未选择项目，无法执行命令");
+      }
+      const script = commands.map((command) => command.trim()).filter(Boolean).join("\n");
+      if (!script) {
+        throw new Error("agents.json 未配置命令");
+      }
+      const previousBoundKey = boundSessionByRootRef.current[activeRoot];
+      if (previousBoundKey && !previousBoundKey.startsWith("pending-")) {
+        suppressedAutoBindSessionByRootRef.current[activeRoot] = previousBoundKey;
+      }
+      selectedSessionRef.current = null;
+      currentSessionRef.current = null;
+      setSelectedSession(null);
+      selectedSessionByRootRef.current[activeRoot] = null;
+      setBoundSessionForRoot(activeRoot, null);
+      setDrawerSessionForRoot(activeRoot, null);
+      setInteractionMode("drawer");
+      setDrawerOpenForRoot(activeRoot, true);
+      await handleSendMessage(script, "command", "");
+      console.info("[agent/lifecycle] command dispatched", {
+        agent: agentName,
+        action,
+        commandCount: commands.length,
+      });
+    },
+    [
+      handleSendMessage,
+      setBoundSessionForRoot,
+      setDrawerOpenForRoot,
+      setDrawerSessionForRoot,
+    ],
+  );
+
   const handleCancelCurrentTurn = useCallback(
     async (sessionKey: string) => {
       const activeRoot = currentRootIdRef.current;
@@ -8679,6 +8716,7 @@ export function App({ onGoHome }: AppProps) {
             showEnterKeySendOption={isMobile}
             enterKeySends={mobileEnterKeySends}
             onEnterKeySendsChange={setMobileEnterKeySends}
+            onRunAgentLifecycleCommand={handleRunAgentLifecycleCommand}
             onGoHome={onGoHome}
           />
         }

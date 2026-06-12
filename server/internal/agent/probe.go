@@ -40,6 +40,9 @@ type Status struct {
 	ModesError          string                   `json:"modes_error,omitempty"`
 	Commands            []agenttypes.CommandInfo `json:"commands,omitempty"`
 	CommandsError       string                   `json:"commands_error,omitempty"`
+	Brief               string                   `json:"brief,omitempty"`
+	InstallCommands     []string                 `json:"install_commands,omitempty"`
+	UpdateCommands      []string                 `json:"update_commands,omitempty"`
 }
 
 const (
@@ -284,6 +287,28 @@ func (p *Prober) Stop() {
 	}
 }
 
+func (p *Prober) UpdateConfig(ctx context.Context, cfg *Config) {
+	if p == nil || cfg == nil {
+		return
+	}
+	now := time.Now().UTC()
+	var missing []Definition
+	p.mu.Lock()
+	p.cfg = cfg
+	for _, def := range cfg.Agents {
+		if _, ok := p.statuses[def.Name]; ok {
+			continue
+		}
+		status := normalizeStatus(probeInstallStatus(def.Name, def, now))
+		p.statuses[def.Name] = status
+		missing = append(missing, def)
+	}
+	p.mu.Unlock()
+	if len(missing) > 0 {
+		go p.probeInstalledAgents(ctx, missing)
+	}
+}
+
 // ProbeAll 探测所有配置的 Agent
 func (p *Prober) ProbeAll(ctx context.Context) {
 	defs := p.configuredDefinitions()
@@ -446,6 +471,26 @@ func (p *Prober) GetAllStatuses() []Status {
 	})
 	statuses = append(statuses, extra...)
 
+	return statuses
+}
+
+// GetConfiguredStatuses returns statuses for agents declared in agents.json.
+func (p *Prober) GetConfiguredStatuses() []Status {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.cfg == nil {
+		return nil
+	}
+	statuses := make([]Status, 0, len(p.cfg.Agents))
+	now := time.Now().UTC()
+	for _, def := range p.cfg.Agents {
+		if st, ok := p.statuses[def.Name]; ok {
+			statuses = append(statuses, st)
+			continue
+		}
+		statuses = append(statuses, normalizeStatus(probeInstallStatus(def.Name, def, now)))
+	}
 	return statuses
 }
 
@@ -642,6 +687,25 @@ func statusChanged(prev Status, next Status) bool {
 	if prev.CommandsError != next.CommandsError {
 		return true
 	}
+	if prev.Brief != next.Brief {
+		return true
+	}
+	if len(prev.InstallCommands) != len(next.InstallCommands) {
+		return true
+	}
+	for i := range prev.InstallCommands {
+		if prev.InstallCommands[i] != next.InstallCommands[i] {
+			return true
+		}
+	}
+	if len(prev.UpdateCommands) != len(next.UpdateCommands) {
+		return true
+	}
+	for i := range prev.UpdateCommands {
+		if prev.UpdateCommands[i] != next.UpdateCommands[i] {
+			return true
+		}
+	}
 	if len(prev.Models) != len(next.Models) {
 		return true
 	}
@@ -705,6 +769,9 @@ func unavailableStatus(name string, installed bool, errMsg string, ts time.Time)
 
 func probeInstallStatus(name string, def Definition, ts time.Time) Status {
 	status := unavailableStatus(name, false, "", ts)
+	status.Brief = strings.TrimSpace(def.Brief)
+	status.InstallCommands = append([]string(nil), def.InstallCommands...)
+	status.UpdateCommands = append([]string(nil), def.UpdateCommands...)
 	if def.Command == "" {
 		status.ProbeError = "command required"
 		return status
@@ -843,6 +910,15 @@ func preserveKnownCapabilities(prev Status, next Status) Status {
 	}
 	if len(next.Commands) == 0 {
 		next.Commands = prev.Commands
+	}
+	if next.Brief == "" {
+		next.Brief = prev.Brief
+	}
+	if len(next.InstallCommands) == 0 {
+		next.InstallCommands = prev.InstallCommands
+	}
+	if len(next.UpdateCommands) == 0 {
+		next.UpdateCommands = prev.UpdateCommands
 	}
 	return next
 }

@@ -95,6 +95,18 @@ function useCachedIcon(url?: string): string | undefined {
   return src;
 }
 
+function fallbackIconText(agentName: string): string {
+  const trimmed = agentName.trim();
+  if (!trimmed) return 'AI';
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
+function cssSize(value: unknown, fallback: number): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return `${value}px`;
+  if (typeof value === 'string' && value.trim()) return value;
+  return `${fallback}px`;
+}
+
 export function AgentIcon({ agentName, ...props }: AgentIconProps) {
   const lowerAgentName = agentName.toLowerCase();
   const agentTokens = lowerAgentName.split(/[^a-z0-9]+/).filter(Boolean);
@@ -164,5 +176,30 @@ export function AgentIcon({ agentName, ...props }: AgentIconProps) {
     );
   }
 
-  return <span {...props}>🤖</span>;
+  const fallbackWidth = cssSize(width, 16);
+  const fallbackHeight = cssSize(height, 16);
+  return (
+    <span
+      {...props}
+      aria-label={agentName}
+      style={{
+        ...style,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: fallbackWidth,
+        height: fallbackHeight,
+        minWidth: fallbackWidth,
+        borderRadius: '4px',
+        background: 'rgba(148, 163, 184, 0.18)',
+        color: 'var(--muted, #64748b)',
+        fontSize: '9px',
+        fontWeight: 700,
+        lineHeight: 1,
+        letterSpacing: 0,
+      }}
+    >
+      {fallbackIconText(agentName)}
+    </span>
+  );
 }

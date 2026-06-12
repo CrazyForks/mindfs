@@ -20,6 +20,7 @@ type Pool struct {
 	cancel     context.CancelFunc
 	mu         sync.Mutex
 	sessions   map[string]*sessionEntry
+	runtimeEnv map[string]map[string]string
 	closed     bool
 	acp        *acp.Runtime
 	claude     *claude.Runtime
@@ -41,6 +42,7 @@ func NewPool(cfg Config) *Pool {
 		processCtx: processCtx,
 		cancel:     cancel,
 		sessions:   make(map[string]*sessionEntry),
+		runtimeEnv: make(map[string]map[string]string),
 		acp:        acp.NewRuntime(processCtx),
 		claude:     claude.NewRuntime(),
 		codex:      codex.NewRuntime(),
@@ -251,6 +253,14 @@ func (p *Pool) Config() Config {
 	return p.cfg
 }
 
+func (p *Pool) UpdateConfig(cfg Config) Config {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cfg = p.applyRuntimeEnvOverridesLocked(cfg)
+	p.cfg = cfg
+	return p.cfg
+}
+
 func (p *Pool) SetAgentEnv(agentName string, env map[string]string) error {
 	if agentName == "" {
 		return errors.New("agent required")
@@ -261,10 +271,25 @@ func (p *Pool) SetAgentEnv(agentName string, env map[string]string) error {
 		if p.cfg.Agents[i].Name != agentName {
 			continue
 		}
+		p.runtimeEnv[agentName] = cloneEnv(env)
 		p.cfg.Agents[i].Env = cloneEnv(env)
 		return nil
 	}
 	return errors.New("agent not configured: " + agentName)
+}
+
+func (p *Pool) applyRuntimeEnvOverridesLocked(cfg Config) Config {
+	if len(p.runtimeEnv) == 0 {
+		return cfg
+	}
+	for i := range cfg.Agents {
+		env, ok := p.runtimeEnv[cfg.Agents[i].Name]
+		if !ok {
+			continue
+		}
+		cfg.Agents[i].Env = cloneEnv(env)
+	}
+	return cfg
 }
 
 // Get returns an existing session handle if present.

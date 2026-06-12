@@ -105,6 +105,8 @@ MindFS does not include any AI model — you need at least one Agent CLI install
 | **Hermes** | https://hermes-agent.nousresearch.com/docs/user-guide/features/acp |
 | **Reasonix** | https://github.com/esengine/DeepSeek-Reasonix |
 
+MindFS also collects commonly used agents in the local UI. Open the file-tree menu, choose **Agent Install & Update**, then use the generated install/update commands for your platform. The commands are launched in MindFS command mode so you can review and run them from the same workspace.
+
 Once an agent is installed, start MindFS and interact with it through the browser.
 
 ### Install
@@ -184,6 +186,33 @@ MindFS automatically detects the availability of installed agents. This usually 
 2. Log in to [a9gent.com](https://a9gent.com) and confirm the binding.
 3. Open your node — it is now accessible from any device.
 
+
+### Custom ACP Agents
+
+MindFS can load an extra `agents.json` for agent CLIs that speak the ACP protocol. This is useful when you are testing a new agent or want to keep project-specific agent definitions outside the bundled defaults.
+
+```json
+{
+  "agents": [
+    {
+      "name": "my-agent",
+      "brief": "Short description shown in the install/update list.",
+      "command": "my-agent",
+      "protocol": "acp",
+      "args": ["--acp"]
+    }
+  ]
+}
+```
+
+Start MindFS with the extra config:
+
+```bash
+mindfs -agent-config /path/to/agents.json
+```
+
+The extra file can add new agents or override a bundled definition with the same `name`.
+
 ### CLI Reference
 
 ```bash
@@ -204,9 +233,11 @@ mindfs -foreground /path/to/project
 mindfs -status
 mindfs -version
 mindfs -update
+mindfs -uninstall
 mindfs -stop
 mindfs -restart
 mindfs -remove /path/to/project
+mindfs -agent-config /path/to/agents.json
 ```
 
 #### Flags
@@ -218,9 +249,12 @@ mindfs -remove /path/to/project
 | `-status` | `false` | Show background service status, PID, URL, and log file path. |
 | `-version` | `false` | Show the current MindFS version. |
 | `-update` | `false` | Check for and install the latest MindFS release. Restart MindFS manually after updating. |
+| `-uninstall` | `false` | Print the uninstall command for the current platform. |
 | `-stop` | `false` | Stop the background service for the selected address. |
 | `-restart` | `false` | Stop the background service if present, then start it again. |
 | `-remove` | `false` | Remove `root` from the managed directory list. If the server is running, it is removed through the local API; otherwise it is removed from the local registry. |
+| `-config string` | empty | Read startup options from a JSON file. See [`config.json`](./config.json) for a template. Explicit command-line flags override file values. |
+| `-agent-config string` | empty | Load one extra `agents.json` file. |
 | `-no-relayer` | `false` | Disable relay integration. Local and private-network access still work. |
 | `-e2ee` | `false` | Enable end-to-end encryption for sensitive data. The pairing code can also be used as an authentication mechanism: unpaired frontends cannot access node content. LAN access requires `-tls` to work correctly. On first enablement, the CLI prints the pairing secret. |
 | `-tls` | `false` | Enable HTTPS. If `-cert` and `-key` are not provided, MindFS generates and reuses a local self-signed certificate. |

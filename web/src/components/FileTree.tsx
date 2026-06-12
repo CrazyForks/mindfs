@@ -18,8 +18,9 @@ import {
   type AppearanceMode,
 } from "../services/appearance";
 import { AgentMenuList } from "./AgentMenuList";
+import { AgentIcon } from "./AgentIcon";
 import { SymlinkBadge } from "./SymlinkBadge";
-import { fetchAgents, type AgentStatus } from "../services/agents";
+import { fetchAgentCatalog, fetchAgents, type AgentStatus } from "../services/agents";
 import {
   createAgentConfigBackup,
   deleteAgentConfigBackup,
@@ -105,6 +106,7 @@ type FileTreeProps = {
   showEnterKeySendOption?: boolean;
   enterKeySends?: boolean;
   onEnterKeySendsChange?: (enabled: boolean) => void;
+  onRunAgentLifecycleCommand?: (agentName: string, action: "install" | "update", commands: string[]) => void | Promise<void>;
   onGoHome?: () => void;
 };
 
@@ -219,6 +221,17 @@ function ConfigSwitchIcon() {
       <path d="m15 4 3 3-3 3" />
       <path d="M17 17H6" />
       <path d="m9 14-3 3 3 3" />
+    </svg>
+  );
+}
+
+function AgentInstallIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M0 0h48v48H0z" fill="none" />
+      <path fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" d="M24 26v16.5m0-37V15m14.932 5.35L42.5 25.5l-14.932 5.65L24 26zm0 0L33 18" />
+      <path fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" d="M38.932 26.85v8a2.895 2.895 0 0 1-1.87 2.708L23.998 42.5l-13.062-4.942a2.895 2.895 0 0 1-1.87-2.708v-8m20.184-10.1l5.5-5.5" />
+      <path fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" d="M9.068 20.35L5.5 25.5l14.932 5.65L24 26Zm0 0L15 18m3.75-1.25l-5.5-5.5" />
     </svg>
   );
 }
@@ -525,6 +538,167 @@ function AgentConfigPopover({
   );
 }
 
+function AgentLifecyclePopover({
+  agents,
+  busy,
+  runningAgent,
+  error,
+  onRun,
+}: {
+  agents: AgentStatus[];
+  busy: boolean;
+  runningAgent: string;
+  error: string;
+  onRun: (agent: AgentStatus, action: "install" | "update") => void;
+}) {
+  const [expandedDescriptions, setExpandedDescriptions] = React.useState<Set<string>>(() => new Set());
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        padding: "10px",
+        borderRadius: "12px",
+        border: "1px solid var(--border-color)",
+        background: "var(--menu-bg)",
+        boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+      }}
+    >
+      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
+        Agent 安装和更新
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "320px", overflow: "auto" }}>
+        {busy && agents.length === 0 ? (
+          <div style={agentConfigHintStyle}>加载中...</div>
+        ) : agents.length === 0 ? (
+          <div style={agentConfigHintStyle}>暂无 Agent 配置</div>
+        ) : (
+          agents.map((item) => {
+            const action = item.installed ? "update" : "install";
+            const commands = action === "install" ? item.install_commands || [] : item.update_commands || [];
+            const disabled = busy || commands.length === 0;
+            const actionLabel = item.installed ? "更新" : "安装";
+            const description = item.brief || "未配置简介";
+            const descriptionExpanded = expandedDescriptions.has(item.name);
+            return (
+              <div
+                key={item.name}
+                style={{
+                  border: "1px solid var(--border-color)",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  borderRadius: "8px",
+                  padding: "8px 10px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                  <AgentIcon
+                    agentName={item.name}
+                    style={{ width: "15px", height: "15px", display: "block", flexShrink: 0 }}
+                  />
+                  <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.name}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      title={commands.length > 0 ? actionLabel : "agents.json 未配置命令"}
+                      onClick={() => onRun(item, action)}
+                      style={{
+                        ...agentConfigPrimaryButtonStyle(disabled),
+                        marginLeft: "auto",
+                        padding: "2px 6px",
+                        minWidth: "36px",
+                        height: "18px",
+                        lineHeight: "12px",
+                        fontSize: "11px",
+                        borderRadius: "5px",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {runningAgent === item.name ? "启动中" : actionLabel}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: descriptionExpanded ? "flex-start" : "center", gap: "4px", minWidth: 0 }}>
+                  <div
+                    title={description}
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      overflow: descriptionExpanded ? "visible" : "hidden",
+                      textOverflow: descriptionExpanded ? "clip" : "ellipsis",
+                      whiteSpace: descriptionExpanded ? "normal" : "nowrap",
+                      width: "100%",
+                      lineHeight: "16px",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {description}
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={descriptionExpanded ? "收起描述" : "展开描述"}
+                    title={descriptionExpanded ? "收起" : "展开"}
+                    onClick={() => {
+                      setExpandedDescriptions((current) => {
+                        const next = new Set(current);
+                        if (next.has(item.name)) {
+                          next.delete(item.name);
+                        } else {
+                          next.add(item.name);
+                        }
+                        return next;
+                      });
+                    }}
+                    style={{
+                      width: "16px",
+                      height: "16px",
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--text-secondary)",
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      marginTop: descriptionExpanded ? "0" : undefined,
+                    }}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                      style={{ transform: descriptionExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+      {error ? <div style={{ ...agentConfigHintStyle, color: "#dc2626" }}>{error}</div> : null}
+    </div>
+  );
+}
+
 const agentConfigFieldStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -672,6 +846,7 @@ export function FileTree({
   showEnterKeySendOption = false,
   enterKeySends = false,
   onEnterKeySendsChange,
+  onRunAgentLifecycleCommand,
   onGoHome,
 }: FileTreeProps) {
   const expandedSet = new Set(expanded);
@@ -700,6 +875,11 @@ export function FileTree({
   const [agentConfigConfirmMessage, setAgentConfigConfirmMessage] = React.useState("");
   const [agentConfigBusy, setAgentConfigBusy] = React.useState(false);
   const [agentConfigError, setAgentConfigError] = React.useState("");
+  const [agentLifecycleOpen, setAgentLifecycleOpen] = React.useState(false);
+  const [agentLifecycleAgents, setAgentLifecycleAgents] = React.useState<AgentStatus[]>([]);
+  const [agentLifecycleBusy, setAgentLifecycleBusy] = React.useState(false);
+  const [agentLifecycleRunningAgent, setAgentLifecycleRunningAgent] = React.useState("");
+  const [agentLifecycleError, setAgentLifecycleError] = React.useState("");
   const [dismissedRelayTipIds, setDismissedRelayTipIds] = React.useState<string[]>(() => {
     if (typeof window === "undefined") {
       return [];
@@ -725,6 +905,7 @@ export function FileTree({
   });
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const agentConfigPopoverRef = React.useRef<HTMLDivElement | null>(null);
+  const agentLifecyclePopoverRef = React.useRef<HTMLDivElement | null>(null);
   const updateNotesRef = React.useRef<HTMLDivElement | null>(null);
   const createInputRef = React.useRef<HTMLInputElement | null>(null);
   const previousCreatingRootNameRef = React.useRef<string | null>(null);
@@ -1104,6 +1285,7 @@ export function FileTree({
   }, [isMenuOpen]);
 
   const openAgentConfigFlow = React.useCallback((flow: AgentConfigFlow) => {
+    setAgentLifecycleOpen(false);
     setAgentConfigFlow(flow);
     setAgentConfigStep("agent");
     setAgentConfigAgent("");
@@ -1133,6 +1315,28 @@ export function FileTree({
     setAgentConfigConfirmMessage("");
   }, []);
 
+  const openAgentLifecycleFlow = React.useCallback(() => {
+    setAgentConfigFlow(null);
+    setAgentLifecycleOpen(true);
+    setIsMenuOpen(false);
+    setAgentLifecycleError("");
+    setAgentLifecycleBusy(true);
+    fetchAgentCatalog(true)
+      .then((items) => {
+        setAgentLifecycleAgents(items);
+      })
+      .catch((error) => {
+        setAgentLifecycleError(error instanceof Error ? error.message : "加载 Agent 失败");
+      })
+      .finally(() => setAgentLifecycleBusy(false));
+  }, []);
+
+  const closeAgentLifecycleFlow = React.useCallback(() => {
+    setAgentLifecycleOpen(false);
+    setAgentLifecycleError("");
+    setAgentLifecycleRunningAgent("");
+  }, []);
+
   React.useEffect(() => {
     if (!agentConfigFlow || agentConfigStep !== "agent") {
       return;
@@ -1145,6 +1349,39 @@ export function FileTree({
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [agentConfigFlow, agentConfigStep, closeAgentConfigFlow]);
+
+  React.useEffect(() => {
+    if (!agentLifecycleOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!agentLifecyclePopoverRef.current?.contains(event.target as Node)) {
+        closeAgentLifecycleFlow();
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [agentLifecycleOpen, closeAgentLifecycleFlow]);
+
+  const runAgentLifecycleCommand = React.useCallback(async (agent: AgentStatus, action: "install" | "update") => {
+    const commands = action === "install" ? agent.install_commands || [] : agent.update_commands || [];
+    if (commands.length === 0) {
+      setAgentLifecycleError("agents.json 未配置命令");
+      return;
+    }
+    setAgentLifecycleBusy(true);
+    setAgentLifecycleRunningAgent(agent.name);
+    setAgentLifecycleError("");
+    try {
+      await onRunAgentLifecycleCommand?.(agent.name, action, commands);
+      closeAgentLifecycleFlow();
+    } catch (error) {
+      setAgentLifecycleError(error instanceof Error ? error.message : "发起命令失败");
+    } finally {
+      setAgentLifecycleBusy(false);
+      setAgentLifecycleRunningAgent("");
+    }
+  }, [closeAgentLifecycleFlow, onRunAgentLifecycleCommand]);
 
   const chooseAgentForConfig = React.useCallback(async (agentName: string) => {
     setAgentConfigAgent(agentName);
@@ -1606,6 +1843,14 @@ export function FileTree({
                   <ConfigSwitchIcon />
                   <span>Agent 配置切换</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={openAgentLifecycleFlow}
+                  style={fileTreeMenuButtonStyle}
+                >
+                  <AgentInstallIcon />
+                  <span>Agent 安装和更新</span>
+                </button>
                 <div style={{ height: "1px", background: "var(--border-color)", margin: "6px 4px" }} />
                 <button
                   type="button"
@@ -1839,6 +2084,28 @@ export function FileTree({
                 void runAgentConfigSwitch(true);
               }}
               onCancel={closeAgentConfigFlow}
+            />
+          </div>
+        ) : null}
+        {agentLifecycleOpen ? (
+          <div
+            ref={agentLifecyclePopoverRef}
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              left: "8px",
+              right: "3px",
+              zIndex: 35,
+            }}
+          >
+            <AgentLifecyclePopover
+              agents={agentLifecycleAgents}
+              busy={agentLifecycleBusy}
+              runningAgent={agentLifecycleRunningAgent}
+              error={agentLifecycleError}
+              onRun={(agent, action) => {
+                void runAgentLifecycleCommand(agent, action);
+              }}
             />
           </div>
         ) : null}

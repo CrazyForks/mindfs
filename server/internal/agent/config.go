@@ -62,6 +62,9 @@ type Definition struct {
 	// Name is the logical agent name (e.g. codex/claude/gemini).
 	Name string `json:"name"`
 
+	// Brief describes the agent's strengths for UI lists.
+	Brief string `json:"brief,omitempty"`
+
 	// Command is the executable name or path.
 	Command string `json:"command"`
 
@@ -78,6 +81,12 @@ type Definition struct {
 	// ConfigBackup stores default inputs for config backup flows.
 	ConfigBackup ConfigBackupDefaults `json:"configBackup,omitempty"`
 
+	// InstallCommands are shell commands used to install this agent.
+	InstallCommands LifecycleCommands `json:"installCommands,omitempty"`
+
+	// UpdateCommands are shell commands used to update this agent.
+	UpdateCommands LifecycleCommands `json:"updateCommands,omitempty"`
+
 	// CwdTemplate is the working directory template ({root} is replaced).
 	CwdTemplate string `json:"cwdTemplate,omitempty"`
 
@@ -88,6 +97,39 @@ type Definition struct {
 type ConfigBackupDefaults struct {
 	FileSources []string `json:"fileSources,omitempty"`
 	EnvKeys     []string `json:"envKeys,omitempty"`
+}
+
+type LifecycleCommands []string
+
+func (c *LifecycleCommands) UnmarshalJSON(payload []byte) error {
+	var items []json.RawMessage
+	if err := json.Unmarshal(payload, &items); err != nil {
+		return err
+	}
+	commands := make(LifecycleCommands, 0, len(items))
+	for _, item := range items {
+		var rawString string
+		if err := json.Unmarshal(item, &rawString); err == nil {
+			if trimmed := strings.TrimSpace(rawString); trimmed != "" {
+				commands = append(commands, trimmed)
+			}
+			continue
+		}
+		var raw struct {
+			Command string      `json:"command"`
+			OS      interface{} `json:"os"`
+		}
+		if err := json.Unmarshal(item, &raw); err != nil {
+			return err
+		}
+		command := strings.TrimSpace(raw.Command)
+		if command == "" || !lifecycleCommandMatchesCurrentOS(parseShellOS(raw.OS)) {
+			continue
+		}
+		commands = append(commands, command)
+	}
+	*c = normalizeCommandList(commands)
+	return nil
 }
 
 // LoadConfig loads agent configuration from the given path or default location.
@@ -118,16 +160,40 @@ func LoadConfig(path string) (Config, error) {
 	return mergeConfigs(baseCfg, userCfg), nil
 }
 
+func LoadConfigWithExtra(extraPath string) (Config, error) {
+	cfg, err := LoadConfig("")
+	if err != nil {
+		return Config{}, err
+	}
+	extraPath = strings.TrimSpace(extraPath)
+	if extraPath == "" {
+		return cfg, nil
+	}
+	extraCfg, err := loadConfigFile(extraPath)
+	if err != nil {
+		return Config{}, err
+	}
+	return mergeConfigs(cfg, extraCfg), nil
+}
+
 func loadConfigFile(path string) (Config, error) {
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, err
 	}
+	return DecodeConfig(payload)
+}
+
+func DecodeConfig(payload []byte) (Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(payload, &cfg); err != nil {
 		return Config{}, err
 	}
 	return normalizeConfig(cfg)
+}
+
+func MergeHostedConfig(hosted Config, local Config) Config {
+	return mergeConfigs(hosted, local)
 }
 
 func loadInstalledDefaultConfig() (Config, string, error) {
@@ -164,11 +230,27 @@ func normalizeConfig(cfg Config) (Config, error) {
 			return Config{}, fmt.Errorf("agent name required")
 		}
 		cfg.Agents[i].Name = name
+		cfg.Agents[i].Brief = strings.TrimSpace(cfg.Agents[i].Brief)
 		if cfg.Agents[i].Protocol == "" {
 			cfg.Agents[i].Protocol = DefaultProtocol(name)
 		}
+		cfg.Agents[i].InstallCommands = normalizeCommandList(cfg.Agents[i].InstallCommands)
+		cfg.Agents[i].UpdateCommands = normalizeCommandList(cfg.Agents[i].UpdateCommands)
 	}
 	return cfg, nil
+}
+
+func normalizeCommandList(commands LifecycleCommands) LifecycleCommands {
+	normalized := make(LifecycleCommands, 0, len(commands))
+	for _, command := range commands {
+		if trimmed := strings.TrimSpace(command); trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func mergeConfigs(base Config, override Config) Config {
@@ -190,11 +272,37 @@ func mergeConfigs(base Config, override Config) Config {
 	}
 	for _, agent := range override.Agents {
 		if index, ok := agentIndexes[agent.Name]; ok {
-			merged.Agents[index] = agent
+			merged.Agents[index] = mergeAgentDefinition(merged.Agents[index], agent)
 			continue
 		}
 		agentIndexes[agent.Name] = len(merged.Agents)
 		merged.Agents = append(merged.Agents, agent)
+	}
+	return merged
+}
+
+func mergeAgentDefinition(base Definition, override Definition) Definition {
+	merged := override
+	if merged.Brief == "" {
+		merged.Brief = base.Brief
+	}
+	if len(merged.InstallCommands) == 0 {
+		merged.InstallCommands = append(LifecycleCommands(nil), base.InstallCommands...)
+	}
+	if len(merged.UpdateCommands) == 0 {
+		merged.UpdateCommands = append(LifecycleCommands(nil), base.UpdateCommands...)
+	}
+	if len(merged.ConfigBackup.FileSources) == 0 {
+		merged.ConfigBackup.FileSources = append([]string(nil), base.ConfigBackup.FileSources...)
+	}
+	if len(merged.ConfigBackup.EnvKeys) == 0 {
+		merged.ConfigBackup.EnvKeys = append([]string(nil), base.ConfigBackup.EnvKeys...)
+	}
+	if merged.CwdTemplate == "" {
+		merged.CwdTemplate = base.CwdTemplate
+	}
+	if len(merged.ProbeArgs) == 0 {
+		merged.ProbeArgs = append([]string(nil), base.ProbeArgs...)
 	}
 	return merged
 }
@@ -264,6 +372,18 @@ func shellMatchesCurrentOS(shell Shell) bool {
 	}
 	for _, value := range shell.OS {
 		if value == runtime.GOOS {
+			return true
+		}
+	}
+	return false
+}
+
+func lifecycleCommandMatchesCurrentOS(values []string) bool {
+	if len(values) == 0 {
+		return true
+	}
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), runtime.GOOS) {
 			return true
 		}
 	}
