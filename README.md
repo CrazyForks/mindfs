@@ -1,6 +1,6 @@
 # MindFS
 
-[English](./README.md) | [简体中文](./README.zh.md) | [Official Site](https://relay.a9gent.com/) | [Discord](https://discord.gg/YPJMqeWSn) | [Twitter](https://x.com/yandc18)
+[English](./README.md) | [简体中文](./README.zh.md) | [Official Site](https://relay.a9gent.com/) | [Discord](https://discord.gg/YPJMqeWSn) | [Twitter](https://x.com/yandc18) | [【wechat group】](#wechat-group)
 
 > **AI Agent Remote Access Gateway · Result Visualization**
 
@@ -267,6 +267,11 @@ mindfs -agent-config /path/to/agents.json
 
 Pull requests are welcome. For larger changes, please open an issue first to discuss the approach.
 
+## wechat-group
+
+<p align="center">
+  <img src="docs/images/mindfs-wechat-group.webp" alt="MindFS 微信群" width="360" />
+</p>
 
 ---
 

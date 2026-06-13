@@ -1,6 +1,6 @@
 # MindFS
 
-[English](./README.md) | [简体中文](./README.zh.md) | [官网](https://relay.a9gent.com/) | [Discord](https://discord.gg/YPJMqeWSn) | [Twitter](https://x.com/yandc18)
+[English](./README.md) | [简体中文](./README.zh.md) | [官网](https://relay.a9gent.com/) | [Discord](https://discord.gg/YPJMqeWSn) | [Twitter](https://x.com/yandc18) | [【微信群】](#微信群)
 
 > **AI Agent 远程访问网关 · 结果可视化**
 
@@ -266,6 +266,12 @@ mindfs -agent-config /path/to/agents.json
 ## 参与贡献
 
 欢迎提交 Pull Request。对于较大的改动，请先开 Issue 讨论方案。
+
+## 微信群
+
+<p align="center">
+  <img src="docs/images/mindfs-wechat-group.webp" alt="MindFS 微信群" width="360" />
+</p>
 
 ---
 
