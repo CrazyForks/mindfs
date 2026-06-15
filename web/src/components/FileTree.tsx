@@ -20,6 +20,7 @@ import {
 import { AgentMenuList } from "./AgentMenuList";
 import { AgentIcon } from "./AgentIcon";
 import { SymlinkBadge } from "./SymlinkBadge";
+import { RelayLocalServicesDialog } from "./RelayLocalServicesDialog";
 import { fetchAgentCatalog, fetchAgents, type AgentStatus } from "../services/agents";
 import {
   createAgentConfigBackup,
@@ -97,6 +98,9 @@ type FileTreeProps = {
   relayActionDisabled?: boolean;
   relayActionHelp?: string | null;
   onRelayAction?: () => void;
+  relayNodeId?: string;
+  relayBaseURL?: string;
+  relayNoRelayer?: boolean;
   updateActionLabel?: string | null;
   updateActionDisabled?: boolean;
   updateActionHelp?: string | null;
@@ -837,6 +841,9 @@ export function FileTree({
   relayActionDisabled = false,
   relayActionHelp = null,
   onRelayAction,
+  relayNodeId = "",
+  relayBaseURL = "",
+  relayNoRelayer = false,
   updateActionLabel = null,
   updateActionDisabled = false,
   updateActionHelp = null,
@@ -876,6 +883,8 @@ export function FileTree({
   const [agentConfigBusy, setAgentConfigBusy] = React.useState(false);
   const [agentConfigError, setAgentConfigError] = React.useState("");
   const [agentLifecycleOpen, setAgentLifecycleOpen] = React.useState(false);
+  const [relayServicesOpen, setRelayServicesOpen] = React.useState(false);
+  const [relayServicesEditing, setRelayServicesEditing] = React.useState(false);
   const [agentLifecycleAgents, setAgentLifecycleAgents] = React.useState<AgentStatus[]>([]);
   const [agentLifecycleBusy, setAgentLifecycleBusy] = React.useState(false);
   const [agentLifecycleRunningAgent, setAgentLifecycleRunningAgent] = React.useState("");
@@ -906,6 +915,7 @@ export function FileTree({
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const agentConfigPopoverRef = React.useRef<HTMLDivElement | null>(null);
   const agentLifecyclePopoverRef = React.useRef<HTMLDivElement | null>(null);
+  const relayServicesPopoverRef = React.useRef<HTMLDivElement | null>(null);
   const updateNotesRef = React.useRef<HTMLDivElement | null>(null);
   const createInputRef = React.useRef<HTMLInputElement | null>(null);
   const previousCreatingRootNameRef = React.useRef<string | null>(null);
@@ -1362,6 +1372,27 @@ export function FileTree({
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [agentLifecycleOpen, closeAgentLifecycleFlow]);
+
+  React.useEffect(() => {
+    if (!relayServicesOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      if (relayServicesEditing) {
+        return;
+      }
+      if (!relayServicesPopoverRef.current?.contains(event.target as Node)) {
+        setRelayServicesOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [relayServicesEditing, relayServicesOpen]);
+
+  const closeRelayServices = React.useCallback(() => {
+    setRelayServicesOpen(false);
+    setRelayServicesEditing(false);
+  }, []);
 
   const runAgentLifecycleCommand = React.useCallback(async (agent: AgentStatus, action: "install" | "update") => {
     const commands = action === "install" ? agent.install_commands || [] : agent.update_commands || [];
@@ -1851,6 +1882,27 @@ export function FileTree({
                   <AgentInstallIcon />
                   <span>Agent 安装和更新</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRelayServicesOpen(true);
+                    setRelayServicesEditing(false);
+                    closeAgentConfigFlow();
+                    setAgentLifecycleOpen(false);
+                    setIsMenuOpen(false);
+                    setIsAppearanceMenuOpen(false);
+                    setIsSortMenuOpen(false);
+                  }}
+                  style={fileTreeMenuButtonStyle}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 17V7a2 2 0 0 1 2-2h6" />
+                    <path d="M8 21h8a2 2 0 0 0 2-2v-6" />
+                    <path d="M14 3h7v7" />
+                    <path d="m21 3-9 9" />
+                  </svg>
+                  <span>公网访问本地服务</span>
+                </button>
                 <div style={{ height: "1px", background: "var(--border-color)", margin: "6px 4px" }} />
                 <button
                   type="button"
@@ -2084,6 +2136,27 @@ export function FileTree({
                 void runAgentConfigSwitch(true);
               }}
               onCancel={closeAgentConfigFlow}
+            />
+          </div>
+        ) : null}
+        {relayServicesOpen ? (
+          <div
+            ref={relayServicesPopoverRef}
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              left: "8px",
+              right: "3px",
+              zIndex: 35,
+            }}
+          >
+            <RelayLocalServicesDialog
+              open={relayServicesOpen}
+              nodeId={relayNodeId}
+              relayBaseURL={relayBaseURL}
+              noRelayer={relayNoRelayer}
+              onCancel={closeRelayServices}
+              onEditingChange={setRelayServicesEditing}
             />
           </div>
         ) : null}

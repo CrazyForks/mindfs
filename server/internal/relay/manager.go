@@ -104,6 +104,12 @@ func (m *Manager) Status() Status {
 	return m.statusLocked()
 }
 
+func (m *Manager) NoRelayer() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.noRelayer
+}
+
 func (m *Manager) StartBinding() (Status, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

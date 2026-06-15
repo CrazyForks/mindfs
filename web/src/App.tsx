@@ -8718,6 +8718,9 @@ export function App({ onGoHome }: AppProps) {
             relayActionDisabled={relayActionDisabled}
             relayActionHelp={null}
             onRelayAction={handleRelayAction}
+            relayNodeId={relayStatus?.node_id || ""}
+            relayBaseURL={relayStatus?.relay_base_url || ""}
+            relayNoRelayer={relayStatus?.no_relayer === true}
             updateActionLabel={showUpdateButton ? updateLabel : null}
             updateActionDisabled={updateBusy}
             updateActionHelp={showUpdateButton ? updateHelp : ""}
