@@ -47,6 +47,7 @@ type TokenEditorProps = {
   disabled?: boolean;
   isDark?: boolean;
   rightInset?: number;
+  topInset?: number;
   bottomInset?: number;
   onChange: (payload: { serializedText: string; displayText: string; activeToken: ActiveToken | null }) => void;
   onFocusChange?: (focused: boolean) => void;
@@ -509,6 +510,7 @@ const TokenEditor = forwardRef<TokenEditorHandle, TokenEditorProps>(function Tok
     disabled = false,
     isDark = false,
     rightInset = 120,
+    topInset = 0,
     bottomInset = 12,
     onChange,
     onFocusChange,
@@ -751,8 +753,8 @@ const TokenEditor = forwardRef<TokenEditorHandle, TokenEditorProps>(function Tok
                 maxHeight: "240px",
                 overflowY: "auto",
                 padding: isSingleLine
-                  ? `12px ${rightInset}px 12px 14px`
-                  : `8px ${rightInset}px ${bottomInset}px 14px`,
+                  ? `${12 + topInset}px ${rightInset}px 12px 14px`
+                  : `${8 + topInset}px ${rightInset}px ${bottomInset}px 14px`,
                 outline: "none",
                 fontSize: "16px",
                 lineHeight: "20px",
@@ -773,8 +775,8 @@ const TokenEditor = forwardRef<TokenEditorHandle, TokenEditorProps>(function Tok
                   position: "absolute",
                   left: "14px",
                   right: `${rightInset}px`,
-                  top: "50%",
-                  transform: "translateY(-50%)",
+                  top: topInset > 0 ? `${topInset + 12}px` : "50%",
+                  transform: topInset > 0 ? "none" : "translateY(-50%)",
                   color: "var(--text-secondary)",
                   fontSize: "16px",
                   pointerEvents: "none",

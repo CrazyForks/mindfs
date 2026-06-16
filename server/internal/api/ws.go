@@ -366,6 +366,7 @@ func (h *WSHandler) broadcastSessionMetaUpdated(rootID string, sess *session.Ses
 				"mode":                session.InferModeFromSession(sess),
 				"effort":              session.InferEffortFromSession(sess),
 				"fast_service":        session.InferFastServiceFromSession(sess),
+				"plan_mode":           sess.PlanMode,
 				"updated_at":          sess.UpdatedAt,
 			},
 		},
@@ -452,6 +453,8 @@ func (h *WSHandler) handleWSRequest(ctx context.Context, conn *websocket.Conn, c
 		h.handleWSPing(conn, clientID, req)
 	case "session.message":
 		go h.handleSessionMessage(ctx, conn, clientID, req)
+	case "session.plan_mode.set":
+		h.handleSessionPlanModeSet(ctx, conn, clientID, req)
 	case "session.answer_question":
 		go h.handleSessionAnswerQuestion(ctx, conn, clientID, req)
 	case "session.ready":
@@ -515,6 +518,10 @@ func (h *WSHandler) handleSessionMessage(ctx context.Context, conn *websocket.Co
 	key := getString(req.Payload, "session_key")
 	requestID := strings.TrimSpace(req.ID)
 	content := getString(req.Payload, "content")
+	planRequested, strippedContent := parsePlanMessage(content)
+	if planRequested {
+		content = strippedContent
+	}
 	sessionType := getString(req.Payload, "type")
 	agentName := getString(req.Payload, "agent")
 	model := getString(req.Payload, "model")
@@ -542,11 +549,12 @@ func (h *WSHandler) handleSessionMessage(ctx context.Context, conn *websocket.Co
 		created, err := uc.CreateSession(ctx, usecase.CreateSessionInput{
 			RootID: rootID,
 			Input: session.CreateInput{
-				Type:  sessionType,
-				Agent: agentName,
-				Model: model,
-				Shell: shell,
-				Name:  sessionName,
+				Type:     sessionType,
+				Agent:    agentName,
+				Model:    model,
+				Shell:    shell,
+				PlanMode: planRequested,
+				Name:     sessionName,
 			},
 		})
 		if err != nil {
@@ -579,6 +587,23 @@ func (h *WSHandler) handleSessionMessage(ctx context.Context, conn *websocket.Co
 		}
 	} else if current, err := uc.GetSession(ctx, usecase.GetSessionInput{RootID: rootID, Key: key}); err == nil && current != nil {
 		sessionName = current.Name
+		if planRequested && !current.PlanMode {
+			if manager, managerErr := h.AppContext.GetSessionManager(rootID); managerErr == nil {
+				if updateErr := manager.UpdatePlanMode(ctx, current, true); updateErr != nil {
+					h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", updateErr.Error())
+					return
+				}
+				h.switchSessionRuntimePlanMode(ctx, key, current, true)
+				updated, getErr := manager.Get(ctx, key, 0)
+				if getErr == nil && updated != nil {
+					current = updated
+					h.broadcastSessionMetaUpdated(rootID, updated)
+				}
+			} else {
+				h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", managerErr.Error())
+				return
+			}
+		}
 	}
 	if requestID != "" {
 		h.sendWSAccepted(conn, clientID, requestID, rootID, key)
@@ -622,6 +647,71 @@ func (h *WSHandler) handleSessionMessage(ctx context.Context, conn *websocket.Co
 		streamHub.BroadcastSessionQueueUpdated(rootID, key, queue)
 	}
 	h.runSessionMessage(job)
+}
+
+func (h *WSHandler) handleSessionPlanModeSet(ctx context.Context, conn *websocket.Conn, clientID string, req WSRequest) {
+	rootID := getString(req.Payload, "root_id")
+	key := getString(req.Payload, "session_key")
+	requestID := strings.TrimSpace(req.ID)
+	enabled := getBool(req.Payload, "enabled")
+	if rootID == "" || key == "" {
+		h.sendWSError(conn, clientID, req.ID, "invalid_request", "root_id and session_key required")
+		return
+	}
+	manager, err := h.AppContext.GetSessionManager(rootID)
+	if err != nil {
+		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		return
+	}
+	current, err := manager.Get(ctx, key, 0)
+	if err != nil {
+		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		return
+	}
+	previous := current.PlanMode
+	if err := manager.UpdatePlanMode(ctx, current, enabled); err != nil {
+		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		return
+	}
+	if previous != enabled {
+		h.switchSessionRuntimePlanMode(ctx, key, current, enabled)
+	}
+	updated, err := manager.Get(ctx, key, 0)
+	if err != nil {
+		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		return
+	}
+	h.sendWSAccepted(conn, clientID, requestID, rootID, key)
+	h.broadcastSessionMetaUpdated(rootID, updated)
+	_ = h.writeWSJSON(clientID, conn, buildSessionDoneResponse(rootID, key, requestID))
+}
+
+func wsAgentPoolSessionKey(sessionKey, agentName string) string {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return ""
+	}
+	agentName = strings.TrimSpace(agentName)
+	if agentName == "" {
+		return sessionKey
+	}
+	return strings.ToLower(agentName) + "-" + sessionKey
+}
+
+func (h *WSHandler) switchSessionRuntimePlanMode(ctx context.Context, key string, current *session.Session, enabled bool) {
+	if h == nil || h.AppContext == nil || current == nil {
+		return
+	}
+	pool := h.AppContext.GetAgentPool()
+	if pool == nil {
+		return
+	}
+	agentName := session.InferAgentFromSession(current)
+	if runtime, ok := pool.Get(wsAgentPoolSessionKey(key, agentName)); ok {
+		if err := runtime.SetPlanMode(ctx, enabled); err != nil {
+			log.Printf("[session/plan] runtime.switch.error session=%s agent=%s plan_mode=%t err=%v", key, agentName, enabled, err)
+		}
+	}
 }
 
 func (h *WSHandler) runSessionMessage(job sessionMessageJob) {
@@ -980,6 +1070,18 @@ func normalizeAgentErrorMessage(err error) string {
 		return strings.TrimSpace(payload.Message)
 	}
 	return raw
+}
+
+func parsePlanMessage(content string) (bool, string) {
+	trimmed := strings.TrimSpace(content)
+	lower := strings.ToLower(trimmed)
+	if lower == "/plan" {
+		return true, ""
+	}
+	if strings.HasPrefix(lower, "/plan ") {
+		return true, strings.TrimSpace(trimmed[len("/plan"):])
+	}
+	return false, content
 }
 
 func getString(payload map[string]any, key string) string {

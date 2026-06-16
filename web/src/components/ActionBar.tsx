@@ -27,6 +27,7 @@ type SessionInfo = {
   mode?: string;
   effort?: string;
   fast_service?: string;
+  plan_mode?: boolean;
   pending?: boolean;
 };
 
@@ -66,6 +67,7 @@ type ActionBarProps = {
   agentsVersion?: number;
   currentRootId?: string | null;
   currentSession?: SessionInfo | null;
+  pendingPlanMode?: boolean;
   attachedFileContext?: AttachedFileContext | null;
   canOpenSessionDrawer?: boolean;
   sessionDrawerOpen?: boolean;
@@ -85,6 +87,11 @@ type ActionBarProps = {
     effort?: string,
     fastService?: "" | "on" | "off",
     shell?: string,
+  ) => void | Promise<void>;
+  onSetPlanMode?: (
+    enabled: boolean,
+    sessionKey?: string,
+    rootId?: string,
   ) => void | Promise<void>;
   onCancelCurrentTurn?: (sessionKey: string) => void;
   onRemoveQueuedMessage?: (queueId: string) => void | Promise<void>;
@@ -354,11 +361,31 @@ function replaceActiveTokenText(input: string, activeToken: { type: "file" | "sl
   return `${input.slice(0, index)}${value} ${input.slice(index + needle.length)}`;
 }
 
+function parsePlanCommand(input: string): boolean | null {
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "/plan" || normalized.startsWith("/plan ")) {
+    return true;
+  }
+  return null;
+}
+
+function stripPlanCommandPrefix(input: string): string {
+  const trimmed = input.trim();
+  if (trimmed.toLowerCase() === "/plan") {
+    return "";
+  }
+  if (trimmed.toLowerCase().startsWith("/plan ")) {
+    return trimmed.slice(5).trimStart();
+  }
+  return trimmed;
+}
+
 export function ActionBar({
   status = "disconnected",
   agentsVersion = 0,
   currentRootId,
   currentSession,
+  pendingPlanMode = false,
   attachedFileContext,
   canOpenSessionDrawer = false,
   sessionDrawerOpen = false,
@@ -366,6 +393,7 @@ export function ActionBar({
   editDraftRequest = null,
   queuedMessages = [],
   onSendMessage,
+  onSetPlanMode,
   onCancelCurrentTurn,
   onRemoveQueuedMessage,
   onUpdateQueuedMessage,
@@ -539,6 +567,9 @@ export function ActionBar({
   const supportsEffort =
     availableEfforts.length > 0 && !!selectedModelInfo?.supportEffort;
   const supportsServiceTier = !!selectedAgent?.supports_fast_service;
+  const planModeActive = (!!currentSession?.plan_mode || pendingPlanMode) && mode !== "command";
+  const planSessionKey = currentSession?.key || currentSession?.session_key || "";
+  const planRootId = currentSession?.root_id || currentRootId || "";
 
   useEffect(() => {
     if (!supportsEffort) {
@@ -610,9 +641,20 @@ export function ActionBar({
         signal: controller.signal,
       })
         .then((items) => {
+          const supportsPlanCommand =
+            activeToken.type !== "slash" ||
+            mode === "command" ||
+            ["codex", "claude"].includes(agent.trim().toLowerCase());
+          const filteredItems = supportsPlanCommand
+            ? items
+            : items.filter(
+                (item) =>
+                  item.type !== "slash_command" ||
+                  item.name.trim().toLowerCase() !== "plan",
+              );
           const nextItems = activeToken.type === "command"
-            ? items.filter((item) => item.name.trim() !== activeToken.query.trim())
-            : items;
+            ? filteredItems.filter((item) => item.name.trim() !== activeToken.query.trim())
+            : filteredItems;
           setCandidates(nextItems);
           setActiveCandidateIndex(activeToken.type === "command" ? -1 : 0);
         })
@@ -723,6 +765,27 @@ export function ActionBar({
   const handleSend = useCallback(async () => {
     const messageText = serializedInput.trim();
     if ((!messageText && pendingAttachments.length === 0) || !isConnected || sending || (mode !== "command" && !agent)) return;
+    const planCommand = pendingAttachments.length === 0 ? parsePlanCommand(messageText) : null;
+    if (planCommand !== null) {
+      const planContent = stripPlanCommandPrefix(messageText);
+      if (!planContent) {
+        setSending(true);
+        try {
+          await onSetPlanMode?.(planCommand, planSessionKey, planRootId);
+          editorRef.current?.clear();
+          setSerializedInput("");
+          setActiveToken(null);
+          setCandidates([]);
+          setActiveCandidateIndex(0);
+        } finally {
+          setSending(false);
+          if (!isMobile) {
+            requestAnimationFrame(() => editorRef.current?.focus());
+          }
+        }
+        return;
+      }
+    }
     setSending(true);
     setCandidates([]);
     setActiveCandidateIndex(0);
@@ -780,7 +843,7 @@ export function ActionBar({
         requestAnimationFrame(() => editorRef.current?.focus());
       }
     }
-  }, [serializedInput, pendingAttachments, isConnected, sending, agent, model, agentMode, onSendMessage, mode, currentRootId, supportsEffort, effort, supportsServiceTier, fastService, isMobile]);
+  }, [serializedInput, pendingAttachments, isConnected, sending, mode, agent, planSessionKey, planRootId, onSetPlanMode, isMobile, model, agentMode, onSendMessage, currentRootId, supportsEffort, effort, supportsServiceTier, fastService, shell]);
 
   const handleCancel = useCallback(async () => {
     const sessionKey = currentSession?.key;
@@ -1165,32 +1228,91 @@ export function ActionBar({
           ) : null}
 
           <div
-            data-mindfs-command-input-width="1"
             style={{
-              background: "var(--panel-bg)",
-              border: isFocused
-                ? "1px solid var(--accent-color)"
-                : "1px solid var(--panel-border)",
-              borderRadius: isMobile ? "10px" : "12px",
-              boxShadow: isMobile
-                ? "none"
-                : (isFocused ? "var(--panel-focus-shadow)" : "var(--panel-shadow)"),
               display: "flex",
-              alignItems: "center",
-              position: "relative",
-              transition: isDragging ? "none" : "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-              minHeight: `${editorMinHeight}px`,
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: planModeActive ? "4px" : 0,
               minWidth: 0,
-              overflow: "visible",
             }}
           >
-            <TokenEditor
-              ref={editorRef}
-              placeholder={inputPlaceholder}
-              disabled={sending}
-              isDark={isDark}
-              rightInset={editorRightInset}
-              bottomInset={editorBottomInset}
+            {planModeActive ? (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  height: "20px",
+                  padding: "0 5px 0 8px",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(37, 99, 235, 0.22)",
+                  background: "rgba(37, 99, 235, 0.10)",
+                  color: "#2563eb",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+              >
+                <span>Plan</span>
+                <button
+                  type="button"
+                  aria-label="关闭 Plan 模式"
+                  title="关闭 Plan 模式"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => void onSetPlanMode?.(false, planSessionKey, planRootId)}
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    border: "none",
+                    borderRadius: "999px",
+                    background: "transparent",
+                    color: "currentColor",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    lineHeight: 1,
+                    padding: 0,
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M0 0h24v24H0z" fill="none" />
+                    <path fill="currentColor" fillRule="evenodd" d="M21 12a9 9 0 1 1-18 0a9 9 0 0 1 18 0M7.293 16.707a1 1 0 0 1 0-1.414L10.586 12L7.293 8.707a1 1 0 0 1 1.414-1.414L12 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414L13.414 12l3.293 3.293a1 1 0 0 1-1.414 1.414L12 13.414l-3.293 3.293a1 1 0 0 1-1.414 0" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            ) : null}
+
+            <div
+              data-mindfs-command-input-width="1"
+              style={{
+                background: "var(--panel-bg)",
+                border: isFocused
+                  ? "1px solid var(--accent-color)"
+                  : "1px solid var(--panel-border)",
+                borderRadius: isMobile ? "10px" : "12px",
+                boxShadow: isMobile
+                  ? "none"
+                  : (isFocused ? "var(--panel-focus-shadow)" : "var(--panel-shadow)"),
+                display: "flex",
+                alignItems: "center",
+                position: "relative",
+                transition: isDragging ? "none" : "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                minHeight: `${editorMinHeight}px`,
+                minWidth: 0,
+                width: "100%",
+                overflow: "visible",
+              }}
+            >
+	            <TokenEditor
+	              ref={editorRef}
+	              placeholder={inputPlaceholder}
+	              disabled={sending}
+	              isDark={isDark}
+	              rightInset={editorRightInset}
+	              topInset={0}
+	              bottomInset={editorBottomInset}
               onChange={handleEditorChange}
               onFocusChange={(focused) => {
                 setIsFocused(focused);
@@ -1489,6 +1611,7 @@ export function ActionBar({
                 }}
               />
             </div>
+          </div>
           </div>
 
           {isMobile ? (

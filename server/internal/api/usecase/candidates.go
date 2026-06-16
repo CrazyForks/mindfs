@@ -350,12 +350,20 @@ func (p *SlashCommandCandidateProvider) Search(ctx context.Context, _ rootfs.Roo
 	if p == nil || p.getStatus == nil {
 		return nil, nil
 	}
+	query = strings.TrimSpace(strings.ToLower(query))
+	items := make([]CandidateItem, 0, 1)
+	if matchesCandidateName("plan", query) {
+		items = append(items, CandidateItem{
+			Type:        CandidateTypeSlashCommand,
+			Name:        "plan",
+			Description: "open Plan mode",
+		})
+	}
 	status, ok := p.getStatus(strings.TrimSpace(agentName))
 	if !ok || len(status.Commands) == 0 {
-		return nil, nil
+		sortCandidateItems(items, query)
+		return limitCandidateItems(items), nil
 	}
-	query = strings.TrimSpace(strings.ToLower(query))
-	items := make([]CandidateItem, 0, len(status.Commands))
 	for _, command := range status.Commands {
 		select {
 		case <-ctx.Done():
@@ -363,6 +371,9 @@ func (p *SlashCommandCandidateProvider) Search(ctx context.Context, _ rootfs.Roo
 		default:
 		}
 		name := strings.TrimSpace(command.Name)
+		if name == "plan" {
+			continue
+		}
 		if name == "" || !matchesCandidateName(name, query) {
 			continue
 		}

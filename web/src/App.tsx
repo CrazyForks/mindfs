@@ -126,6 +126,7 @@ export type SessionItem = {
   mode?: string;
   effort?: string;
   fast_service?: "" | "on" | "off";
+  plan_mode?: boolean;
   scope?: string;
   purpose?: string;
   created_at?: string;
@@ -150,10 +151,10 @@ export type SessionItem = {
     thought_id?: string;
     timestamp?: string;
     model?: string;
-    mode?: string;
-    effort?: string;
-    fast_service?: "" | "on" | "off";
-    context_window?: {
+	    mode?: string;
+	    effort?: string;
+	    fast_service?: "" | "on" | "off";
+	    context_window?: {
       totalTokens: number;
       modelContextWindow: number;
     };
@@ -221,6 +222,10 @@ function toSessionItem(
     fast_service:
       normalizeFastService(session?.fast_service) ||
       normalizeFastService(latestExchangeText(session?.exchanges, "fast_service")),
+    plan_mode:
+      typeof session?.plan_mode === "boolean"
+        ? session.plan_mode
+        : false,
     scope: typeof session?.scope === "string" ? session.scope : "",
     purpose: typeof session?.purpose === "string" ? session.purpose : "",
     created_at:
@@ -1081,6 +1086,7 @@ export function App({ onGoHome }: AppProps) {
   const [activeBoundSessionKey, setActiveBoundSessionKey] = useState<
     string | null
   >(null);
+  const [pendingPlanMode, setPendingPlanMode] = useState(false);
   const [currentSession, setCurrentSession] = useState<SessionItem | null>(null);
   const [cacheVersion, setCacheVersion] = useState(0);
   const [queueVersion, setQueueVersion] = useState(0);
@@ -1448,6 +1454,11 @@ export function App({ onGoHome }: AppProps) {
     selectedSessionRef.current = selectedSession;
   }, [selectedSession]);
   useEffect(() => {
+    if (selectedSession || activeBoundSessionKey || interactionMode !== "main") {
+      setPendingPlanMode(false);
+    }
+  }, [selectedSession, activeBoundSessionKey, interactionMode]);
+  useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
   useEffect(() => {
@@ -1467,6 +1478,9 @@ export function App({ onGoHome }: AppProps) {
     setSessionSearchAppliedQuery("");
     setSessionSearchResults([]);
     setSessionSearchLoading(false);
+  }, [currentRootId]);
+  useEffect(() => {
+    setPendingPlanMode(false);
   }, [currentRootId]);
   useEffect(() => {
     externalSessionsRef.current = externalSessions;
@@ -2135,6 +2149,52 @@ export function App({ onGoHome }: AppProps) {
     }
   }, [sessions, syncSessionHeaderFromListItem]);
 
+  const handleSetPlanMode = useCallback(
+    async (enabled: boolean, targetSessionKey?: string, targetRootId?: string) => {
+      const activeRoot = targetRootId || currentRootIdRef.current;
+      const session = currentSessionRef.current || drawerSessionByRootRef.current[activeRoot || ""];
+      const sessionKey = targetSessionKey || session?.key || (session as any)?.session_key;
+      if (!activeRoot) {
+        reportError("session.sync_failed", "请先选择一个会话再切换 Plan 模式");
+        return;
+      }
+      if (!sessionKey || String(sessionKey).startsWith("pending-")) {
+        setPendingPlanMode(enabled);
+        return;
+      }
+      const now = new Date().toISOString();
+      const cacheKey = rootSessionKey(activeRoot, sessionKey);
+      const cached = sessionCacheRef.current[cacheKey];
+      if (cached) {
+        sessionCacheRef.current[cacheKey] = {
+          ...(cached as any),
+          plan_mode: enabled,
+          updated_at: now,
+        } as Session;
+      }
+      setSelectedSession((prev) => {
+        const prevKey = prev?.key || prev?.session_key;
+        const prevRoot = (prev?.root_id as string | undefined) || activeRoot;
+        if (!prev || prevKey !== sessionKey || prevRoot !== activeRoot) return prev;
+        return { ...(prev as any), plan_mode: enabled, updated_at: now } as SessionItem;
+      });
+      const drawer = drawerSessionByRootRef.current[activeRoot];
+      if (drawer?.key === sessionKey) {
+        setDrawerSessionForRoot(activeRoot, {
+          ...(drawer as any),
+          plan_mode: enabled,
+          updated_at: now,
+        } as Session);
+      }
+      bumpCacheVersion();
+      const sent = await sessionService.setPlanMode(activeRoot, sessionKey, enabled);
+      if (!sent) {
+        reportError("network.disconnected", "Plan 模式切换失败：连接未就绪，请稍后重试");
+      }
+    },
+    [rootSessionKey, setDrawerSessionForRoot, bumpCacheVersion],
+  );
+
   const promotePendingSessionForRoot = useCallback(
     (
       rootID: string,
@@ -2243,10 +2303,10 @@ export function App({ onGoHome }: AppProps) {
       fallback?: {
         agent?: string;
         model?: string;
-        mode?: string;
-        effort?: string;
-        fast_service?: "" | "on" | "off";
-      },
+	        mode?: string;
+	        effort?: string;
+	        fast_service?: "" | "on" | "off";
+	      },
     ) => {
       const cacheKey = rootSessionKey(rootID, sessionKey);
       const candidates = [
@@ -2269,10 +2329,10 @@ export function App({ onGoHome }: AppProps) {
         .find(
           (item) =>
             item?.agent ||
-            item?.model ||
-            item?.mode ||
-            item?.effort ||
-            item?.fast_service,
+	            item?.model ||
+	            item?.mode ||
+	            item?.effort ||
+	            item?.fast_service,
         );
       candidates.push(latestMatchingExchange as any);
 
@@ -2290,13 +2350,13 @@ export function App({ onGoHome }: AppProps) {
         }
         return "";
       };
-      return {
-        agent: pickText("agent"),
-        model: pickText("model"),
-        mode: pickText("mode"),
-        effort: pickText("effort"),
-        fast_service: pickFastService(),
-      };
+	      return {
+	        agent: pickText("agent"),
+	        model: pickText("model"),
+	        mode: pickText("mode"),
+	        effort: pickText("effort"),
+	        fast_service: pickFastService(),
+	      };
     },
     [rootSessionKey],
   );
@@ -2309,10 +2369,10 @@ export function App({ onGoHome }: AppProps) {
       runtimeHint?: {
         agent?: string;
         model?: string;
-        mode?: string;
-        effort?: string;
-        fast_service?: "" | "on" | "off";
-      },
+	        mode?: string;
+	        effort?: string;
+	        fast_service?: "" | "on" | "off";
+	      },
     ) => {
       if (!content) return;
       const now = new Date().toISOString();
@@ -2330,10 +2390,10 @@ export function App({ onGoHome }: AppProps) {
             ...last,
             agent: last.agent || runtimeMeta.agent,
             model: last.model || runtimeMeta.model,
-            mode: last.mode || runtimeMeta.mode,
-            effort: last.effort || runtimeMeta.effort,
-            fast_service: last.fast_service || runtimeMeta.fast_service,
-            content: `${last.content || ""}${content}`,
+	            mode: last.mode || runtimeMeta.mode,
+	            effort: last.effort || runtimeMeta.effort,
+	            fast_service: last.fast_service || runtimeMeta.fast_service,
+	            content: `${last.content || ""}${content}`,
             timestamp: now,
           };
           return list;
@@ -2342,10 +2402,10 @@ export function App({ onGoHome }: AppProps) {
           role: "agent",
           agent: runtimeMeta.agent,
           model: runtimeMeta.model,
-          mode: runtimeMeta.mode,
-          effort: runtimeMeta.effort,
-          fast_service: runtimeMeta.fast_service,
-          content,
+	          mode: runtimeMeta.mode,
+	          effort: runtimeMeta.effort,
+	          fast_service: runtimeMeta.fast_service,
+	          content,
           timestamp: now,
         });
         return list;
@@ -2358,10 +2418,10 @@ export function App({ onGoHome }: AppProps) {
           type: "chat",
           agent: runtimeMeta.agent,
           model: runtimeMeta.model,
-          mode: runtimeMeta.mode,
-          effort: runtimeMeta.effort,
-          fast_service: runtimeMeta.fast_service,
-          name: "",
+	          mode: runtimeMeta.mode,
+	          effort: runtimeMeta.effort,
+	          fast_service: runtimeMeta.fast_service,
+	          name: "",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           exchanges: [],
@@ -2373,10 +2433,10 @@ export function App({ onGoHome }: AppProps) {
         ...(base as any),
         agent: (base as any).agent || runtimeMeta.agent,
         model: (base as any).model || runtimeMeta.model,
-        mode: (base as any).mode || runtimeMeta.mode,
-        effort: (base as any).effort || runtimeMeta.effort,
-        fast_service: (base as any).fast_service || runtimeMeta.fast_service,
-        exchanges: nextList,
+	        mode: (base as any).mode || runtimeMeta.mode,
+	        effort: (base as any).effort || runtimeMeta.effort,
+	        fast_service: (base as any).fast_service || runtimeMeta.fast_service,
+	        exchanges: nextList,
         updated_at: new Date().toISOString(),
       } as Session;
       bumpCacheVersion();
@@ -3873,6 +3933,9 @@ export function App({ onGoHome }: AppProps) {
         effectiveEffort = effort || "",
         effectiveFastService = (fastService || "") as "" | "on" | "off",
         effectiveShell = shell || "";
+      const messageRequestsPlanMode =
+        message.trim().toLowerCase() === "/plan" ||
+        message.trim().toLowerCase().startsWith("/plan ");
       const isQueueSend =
         !!sendSessionKey &&
         !!session &&
@@ -3949,6 +4012,7 @@ export function App({ onGoHome }: AppProps) {
           effort: effectiveEffort,
           fast_service: effectiveFastService,
           shell: effectiveShell,
+          plan_mode: pendingPlanMode || messageRequestsPlanMode,
           name: "新会话",
           pending: true,
         } as any;
@@ -4060,6 +4124,7 @@ export function App({ onGoHome }: AppProps) {
           effectiveMode === "plugin" ? getViewModeSystemPrompt() : undefined,
       });
       let outgoingMessage = message;
+      const applyPendingPlanPrefix = pendingPlanMode && !sendSessionKey;
       const currentFile = fileRef.current;
       if (currentFile && !pluginBypassRef.current) {
         try {
@@ -4075,6 +4140,9 @@ export function App({ onGoHome }: AppProps) {
           console.warn("[plugin/view-context] failed", err);
         }
       }
+      if (applyPendingPlanPrefix) {
+        outgoingMessage = `/plan ${outgoingMessage}`;
+      }
       const sent = await sessionService.sendMessage(
         activeRoot,
         sendSessionKey || undefined,
@@ -4089,6 +4157,9 @@ export function App({ onGoHome }: AppProps) {
         effectiveShell || undefined,
         requestId,
       );
+      if (sent && applyPendingPlanPrefix) {
+        setPendingPlanMode(false);
+      }
       console.info("[session/send] dispatched", { requestId, rootId: activeRoot, sessionKey: sendSessionKey || null, tempKey: tempKey || null, sent });
       if (!sent) {
         console.warn("[session/send] dispatch_failed", { requestId, rootId: activeRoot, sessionKey: sendSessionKey || null });
@@ -4122,6 +4193,7 @@ export function App({ onGoHome }: AppProps) {
       setDrawerOpenForRoot,
       setDrawerSessionForRoot,
       updateSessionAgentForKey,
+      pendingPlanMode,
     ],
   );
 
@@ -6248,10 +6320,10 @@ export function App({ onGoHome }: AppProps) {
             content: pending.message,
             timestamp: pending.timestamp,
             model: pending.model,
-            mode: pending.agentMode,
-            effort: pending.effort,
-            fast_service: pending.fastService || "",
-            shell: pending.shell || "",
+	            mode: pending.agentMode,
+	            effort: pending.effort,
+	            fast_service: pending.fastService || "",
+	            shell: pending.shell || "",
           };
           const cached =
             sessionCacheRef.current[ck] ||
@@ -6260,10 +6332,10 @@ export function App({ onGoHome }: AppProps) {
               type: pending.mode,
               agent: pending.agent,
               model: pending.model,
-              mode: pending.agentMode,
-              effort: pending.effort,
-              fast_service: pending.fastService || "",
-              shell: pending.shell || "",
+	              mode: pending.agentMode,
+	              effort: pending.effort,
+	              fast_service: pending.fastService || "",
+	              shell: pending.shell || "",
               name: pendingName,
               created_at: pending.timestamp,
               updated_at: pending.timestamp,
@@ -6329,11 +6401,10 @@ export function App({ onGoHome }: AppProps) {
               ? {
                   agent: pending.agent,
                   model: pending.model,
-                  mode: pending.agentMode,
-                  effort: pending.effort,
-                  fast_service: pending.fastService || "",
-                  shell: pending.shell || "",
-                }
+	                  mode: pending.agentMode,
+	                  effort: pending.effort,
+	                  fast_service: pending.fastService || "",
+	                }
               : undefined,
           );
           updateDrawerIfShowingStream();
@@ -6816,6 +6887,10 @@ export function App({ onGoHome }: AppProps) {
                 fast_service:
                   normalizeFastService(sessionMeta?.fast_service) ||
                   normalizeFastService(exchange?.fast_service),
+	                plan_mode:
+	                  typeof sessionMeta?.plan_mode === "boolean"
+	                    ? sessionMeta.plan_mode
+	                    : false,
                 name: sessionMeta?.name || "新会话",
                 created_at:
                   sessionMeta?.created_at ||
@@ -6864,6 +6939,10 @@ export function App({ onGoHome }: AppProps) {
                 normalizeFastService(sessionMeta?.fast_service) ||
                 normalizeFastService(exchange?.fast_service) ||
                 normalizeFastService((cached as any).fast_service),
+	              plan_mode:
+	                typeof sessionMeta?.plan_mode === "boolean"
+	                  ? sessionMeta.plan_mode
+	                  : !!(cached as any).plan_mode,
               exchanges: duplicate
                 ? prevExchanges
                 : [
@@ -6872,10 +6951,10 @@ export function App({ onGoHome }: AppProps) {
                       role: "user",
                       agent: exchange?.agent || "",
                       model: exchange?.model || "",
-                      mode: exchange?.mode || "",
-                      effort: exchange?.effort || "",
-                      fast_service: exchange?.fast_service || "",
-                      content: exchange?.content || "",
+	                      mode: exchange?.mode || "",
+	                      effort: exchange?.effort || "",
+	                      fast_service: exchange?.fast_service || "",
+	                      content: exchange?.content || "",
                       timestamp:
                         exchange?.timestamp || new Date().toISOString(),
                       pending_ack: false,
@@ -6925,6 +7004,10 @@ export function App({ onGoHome }: AppProps) {
                 fast_service:
                   normalizeFastService(payload.session.fast_service) ||
                   normalizeFastService((cached as any).fast_service),
+                plan_mode:
+                  typeof payload.session.plan_mode === "boolean"
+                    ? payload.session.plan_mode
+                    : !!(cached as any).plan_mode,
                 parent_session_key:
                   typeof payload.session.parent_session_key === "string"
                     ? payload.session.parent_session_key
@@ -6964,6 +7047,10 @@ export function App({ onGoHome }: AppProps) {
                       fast_service:
                         normalizeFastService(payload.session.fast_service) ||
                         normalizeFastService((prev as any).fast_service),
+                      plan_mode:
+                        typeof payload.session.plan_mode === "boolean"
+                          ? payload.session.plan_mode
+                          : !!(prev as any).plan_mode,
                       parent_session_key:
                         typeof payload.session.parent_session_key === "string"
                           ? payload.session.parent_session_key
@@ -8789,14 +8876,16 @@ export function App({ onGoHome }: AppProps) {
             agentsVersion={agentsVersion}
             currentRootId={currentRootId}
             currentSession={actionBarSession}
+            pendingPlanMode={pendingPlanMode}
             attachedFileContext={attachedFileContext}
             canOpenSessionDrawer={canOpenSessionDrawer}
             sessionDrawerOpen={isDrawerOpen}
             detachedBoundSession={detachedBoundSession}
             editDraftRequest={editDraftRequest}
-            queuedMessages={actionBarQueuedMessages}
-            onSendMessage={handleSendMessage}
-            onCancelCurrentTurn={handleCancelCurrentTurn}
+	            queuedMessages={actionBarQueuedMessages}
+	            onSendMessage={handleSendMessage}
+	            onSetPlanMode={handleSetPlanMode}
+	            onCancelCurrentTurn={handleCancelCurrentTurn}
             onRemoveQueuedMessage={handleRemoveQueuedMessage}
             onUpdateQueuedMessage={handleUpdateQueuedMessage}
             onSendQueuedMessageNow={handleSendQueuedMessageNow}

@@ -29,8 +29,8 @@ const (
 	exchangeFileTpl  = "sessions/%s.jsonl"
 	auxFileTpl       = "sessions/%s.aux.jsonl"
 	selectSessionSQL = `
-SELECT key, type, parent_session_key, parent_tool_call_id, model, shell, name, related_files_json, created_at, updated_at, closed_at
-FROM sessions`
+	SELECT key, type, parent_session_key, parent_tool_call_id, model, shell, plan_mode, name, related_files_json, created_at, updated_at, closed_at
+	FROM sessions`
 	deleteSessionSQL = `
 DELETE FROM sessions
 WHERE key = ?`
@@ -39,15 +39,16 @@ DELETE FROM session_agent_bindings
 WHERE session_key = ?`
 	upsertSessionMetaSQL = `
 INSERT INTO sessions (
-	key, type, parent_session_key, parent_tool_call_id, model, shell, name, related_files_json, created_at, updated_at, closed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		key, type, parent_session_key, parent_tool_call_id, model, shell, plan_mode, name, related_files_json, created_at, updated_at, closed_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(key) DO UPDATE SET
 	type = excluded.type,
 	parent_session_key = excluded.parent_session_key,
-	parent_tool_call_id = excluded.parent_tool_call_id,
-	model = excluded.model,
-	shell = excluded.shell,
-	name = excluded.name,
+		parent_tool_call_id = excluded.parent_tool_call_id,
+		model = excluded.model,
+		shell = excluded.shell,
+		plan_mode = excluded.plan_mode,
+		name = excluded.name,
 	related_files_json = excluded.related_files_json,
 	created_at = excluded.created_at,
 	updated_at = excluded.updated_at,
@@ -58,9 +59,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 	type TEXT NOT NULL,
 	parent_session_key TEXT NOT NULL DEFAULT '',
 	parent_tool_call_id TEXT NOT NULL DEFAULT '',
-	model TEXT NOT NULL DEFAULT '',
-	shell TEXT NOT NULL DEFAULT '',
-	name TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		shell TEXT NOT NULL DEFAULT '',
+		plan_mode INTEGER NOT NULL DEFAULT 0,
+		name TEXT NOT NULL,
 	related_files_json TEXT NOT NULL,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
@@ -118,6 +120,7 @@ type CreateInput struct {
 	Agent            string
 	Model            string
 	Shell            string
+	PlanMode         bool
 	Name             string
 }
 
@@ -202,6 +205,7 @@ func (m *Manager) Create(_ context.Context, input CreateInput) (*Session, error)
 		AgentCtxSeq:      agentCtxSeq,
 		Model:            strings.TrimSpace(input.Model),
 		Shell:            strings.TrimSpace(input.Shell),
+		PlanMode:         input.PlanMode,
 		Name:             name,
 		Exchanges:        []Exchange{},
 		RelatedFiles:     []RelatedFile{},
@@ -740,6 +744,27 @@ func (m *Manager) UpdateShell(_ context.Context, session *Session, shell string)
 	current.Shell = shell
 	current.UpdatedAt = m.now().UTC()
 	session.Shell = shell
+	session.UpdatedAt = current.UpdatedAt
+	return m.upsertSessionMetaUnsafe(current)
+}
+
+func (m *Manager) UpdatePlanMode(_ context.Context, session *Session, enabled bool) error {
+	if session == nil || strings.TrimSpace(session.Key) == "" {
+		return errors.New("session required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, err := m.getSessionUnsafe(session.Key, 0)
+	if err != nil {
+		return err
+	}
+	if current.PlanMode == enabled {
+		session.PlanMode = enabled
+		return nil
+	}
+	current.PlanMode = enabled
+	current.UpdatedAt = m.now().UTC()
+	session.PlanMode = enabled
 	session.UpdatedAt = current.UpdatedAt
 	return m.upsertSessionMetaUnsafe(current)
 }
@@ -1342,6 +1367,10 @@ func (m *Manager) ensureSessionMetaDBUnsafe() (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN plan_mode INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+		db.Close()
+		return nil, err
+	}
 	for _, stmt := range []string{
 		`ALTER TABLE sessions ADD COLUMN parent_session_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN parent_tool_call_id TEXT NOT NULL DEFAULT ''`,
@@ -1374,12 +1403,20 @@ func sessionMetaUpsertArgs(session *Session) ([]any, error) {
 		session.ParentToolCallID,
 		session.Model,
 		session.Shell,
+		boolToSQLiteInt(session.PlanMode),
 		session.Name,
 		string(relatedFilesJSON),
 		session.CreatedAt.UTC().Format(time.RFC3339Nano),
 		session.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		closedAt,
 	}, nil
+}
+
+func boolToSQLiteInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 type rowScanner interface {
@@ -1394,6 +1431,7 @@ func scanSessionMetaRow(scanner rowScanner) (*Session, error) {
 		parentToolCallID string
 		model            string
 		shell            string
+		planMode         int
 		name             string
 		relatedFilesJSON string
 		createdAtRaw     string
@@ -1407,6 +1445,7 @@ func scanSessionMetaRow(scanner rowScanner) (*Session, error) {
 		&parentToolCallID,
 		&model,
 		&shell,
+		&planMode,
 		&name,
 		&relatedFilesJSON,
 		&createdAtRaw,
@@ -1422,6 +1461,7 @@ func scanSessionMetaRow(scanner rowScanner) (*Session, error) {
 		ParentToolCallID: parentToolCallID,
 		Model:            model,
 		Shell:            shell,
+		PlanMode:         planMode != 0,
 		Name:             name,
 		Exchanges:        []Exchange{},
 		RelatedFiles:     []RelatedFile{},

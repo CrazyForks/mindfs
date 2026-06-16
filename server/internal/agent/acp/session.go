@@ -308,6 +308,10 @@ func (s *session) SetMode(ctx context.Context, mode string) error {
 	return s.proc.SetMode(ctx, s.sessionKey, mode)
 }
 
+func (s *session) SetPlanMode(_ context.Context, _ bool) error {
+	return nil
+}
+
 func (s *session) ListModes(_ context.Context) (types.ModeList, error) {
 	if s == nil || s.proc == nil {
 		return types.ModeList{}, errors.New("acp session not initialized")

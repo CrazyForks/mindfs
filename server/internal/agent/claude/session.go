@@ -30,6 +30,7 @@ type OpenOptions struct {
 	SessionKey      string
 	Model           string
 	Effort          string
+	PlanMode        bool
 	RootPath        string
 	Command         string
 	Args            []string
@@ -51,6 +52,7 @@ func (r *Runtime) OpenSession(ctx context.Context, opts OpenOptions) (types.Sess
 	s := &session{
 		sessionKey:    opts.SessionKey,
 		model:         strings.TrimSpace(opts.Model),
+		planMode:      opts.PlanMode,
 		agentDebugLog: logs.NewAgentLogger(opts.RootPath, opts.SessionKey, opts.AgentName),
 		questionWaits: make(map[string]chan askUserAnswerResult),
 	}
@@ -74,6 +76,9 @@ func (r *Runtime) OpenSession(ctx context.Context, opts OpenOptions) (types.Sess
 	if strings.TrimSpace(opts.Effort) != "" {
 		optionList = append(optionList, claudeagent.WithEffort(claudeagent.Effort(strings.TrimSpace(opts.Effort))))
 	}
+	if opts.PlanMode {
+		optionList = append(optionList, claudeagent.WithPermissionMode(claudeagent.PermissionModePlan))
+	}
 
 	client, err := claudeagent.NewClient(optionList...)
 	if err != nil {
@@ -93,6 +98,12 @@ func (r *Runtime) OpenSession(ctx context.Context, opts OpenOptions) (types.Sess
 	}
 	if selectedModel != "" {
 		if err := stream.SetModel(ctx, selectedModel); err != nil {
+			client.Close()
+			return nil, err
+		}
+	}
+	if opts.PlanMode {
+		if err := stream.SetPermissionMode(ctx, claudeagent.PermissionModePlan); err != nil {
 			client.Close()
 			return nil, err
 		}
@@ -131,6 +142,7 @@ type session struct {
 	sessionID  string
 	sessionKey string
 	model      string
+	planMode  bool
 	context    types.ContextWindow
 
 	sendMu          sync.Mutex
@@ -319,6 +331,23 @@ func (s *session) SetModel(ctx context.Context, model string) error {
 	}
 	s.mu.Lock()
 	s.model = trimmed
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *session) SetPlanMode(ctx context.Context, enabled bool) error {
+	if s == nil || s.stream == nil {
+		return errors.New("claude session not initialized")
+	}
+	mode := claudeagent.PermissionModeDefault
+	if enabled {
+		mode = claudeagent.PermissionModePlan
+	}
+	if err := s.stream.SetPermissionMode(ctx, mode); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.planMode = enabled
 	s.mu.Unlock()
 	return nil
 }

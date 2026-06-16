@@ -1164,6 +1164,8 @@ func (s *fakeUsecaseAgentSession) ListModels(context.Context) (agenttypes.ModelL
 
 func (s *fakeUsecaseAgentSession) SetMode(context.Context, string) error { return nil }
 
+func (s *fakeUsecaseAgentSession) SetPlanMode(context.Context, bool) error { return nil }
+
 func (s *fakeUsecaseAgentSession) ListModes(context.Context) (agenttypes.ModeList, error) {
 	return agenttypes.ModeList{}, nil
 }

@@ -21,6 +21,7 @@ type Session struct {
 	AgentCtxSeq      map[string]int `json:"agent_ctx_seq,omitempty"`
 	Model            string         `json:"model,omitempty"`
 	Shell            string         `json:"shell,omitempty"`
+	PlanMode         bool           `json:"plan_mode,omitempty"`
 	Name             string         `json:"name"`
 	Exchanges        []Exchange     `json:"exchanges"`
 	RelatedFiles     []RelatedFile  `json:"related_files"`

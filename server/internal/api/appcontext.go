@@ -385,6 +385,7 @@ func (s *AppContext) BroadcastSessionMetaUpdated(rootID string, sess *session.Se
 				"mode":                session.InferModeFromSession(sess),
 				"effort":              session.InferEffortFromSession(sess),
 				"fast_service":        session.InferFastServiceFromSession(sess),
+				"plan_mode":           sess.PlanMode,
 				"updated_at":          sess.UpdatedAt,
 			},
 		},

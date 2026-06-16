@@ -1019,10 +1019,12 @@ func (s *Service) ensureAgentSession(
 	nextMode := resolveRuntimeMode(current, mode)
 	nextEffort := resolveRuntimeEffort(agentName, current, effort)
 	nextFastService := resolveRuntimeFastService(agentName, current, fastService)
+	nextPlanMode := current != nil && current.PlanMode
 	currentModel := ""
 	currentMode := ""
 	currentEffort := ""
 	currentFastService := ""
+	currentPlanMode := false
 	if current != nil {
 		currentModel = resolveSessionExchangeModel(current)
 		if currentModel == "" {
@@ -1031,6 +1033,7 @@ func (s *Service) ensureAgentSession(
 		currentMode = resolveSessionExchangeMode(current)
 		currentEffort = session.InferEffortFromSession(current)
 		currentFastService = inferFastServiceFromSession(current)
+		currentPlanMode = current.PlanMode
 	}
 	if existing, ok := pool.Get(poolSessionKey); ok {
 		if !shouldReopenSessionForSetting(pool, agentName, currentEffort, nextEffort) &&
@@ -1056,6 +1059,17 @@ func (s *Service) ensureAgentSession(
 					return nil, nil, err
 				}
 				log.Printf("[session/mode] switch.done session=%s agent=%s mode=%q pool_session=%s", current.Key, agentName, nextMode, poolSessionKey)
+			}
+			if current != nil && currentPlanMode != nextPlanMode {
+				log.Printf("[session/plan] switch.detected session=%s agent=%s from=%t to=%t action=set_plan_mode", current.Key, agentName, currentPlanMode, nextPlanMode)
+				if err := existing.SetPlanMode(ctx, nextPlanMode); err != nil {
+					if prober := s.Registry.GetProber(); prober != nil {
+						prober.ReportRuntimeFailure(agentName, err)
+					}
+					log.Printf("[session/plan] switch.error session=%s agent=%s plan_mode=%t pool_session=%s err=%v", current.Key, agentName, nextPlanMode, poolSessionKey, err)
+					return nil, nil, err
+				}
+				log.Printf("[session/plan] switch.done session=%s agent=%s plan_mode=%t pool_session=%s", current.Key, agentName, nextPlanMode, poolSessionKey)
 			}
 			var currentSeq *int
 			if current != nil {
@@ -1089,6 +1103,7 @@ func (s *Service) ensureAgentSession(
 		Mode:        nextMode,
 		Effort:      nextEffort,
 		FastService: nextFastService,
+		PlanMode:    nextPlanMode,
 		RootPath:    rootAbs,
 		AgentSessionID: strings.TrimSpace(func() string {
 			if binding == nil {
@@ -1275,6 +1290,7 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) error {
 	}
 	root := manager.Root()
 	rootAbs, _ := root.RootDir()
+	planMode := current != nil && current.PlanMode
 	sess, agentCtxSeq, err := s.ensureAgentSession(turnCtx, agentPool, manager, current, in.Agent, in.Model, in.Mode, in.Effort, in.FastService, rootAbs)
 	if err != nil {
 		return err
@@ -1419,6 +1435,7 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) error {
 				Mode:               in.Mode,
 				Effort:             in.Effort,
 				FastService:        in.FastService,
+				PlanMode:           planMode,
 				RootAbs:            rootAbs,
 				CurrentSession:     sess,
 				Prompt:             prompt,
@@ -1528,6 +1545,7 @@ func (s *Service) ensureSubagentSession(ctx context.Context, in subagentSessionI
 		ParentToolCallID: in.ToolCall.CallID,
 		Agent:            in.Agent,
 		Model:            firstNonEmptyString(stringMeta(in.ToolCall.Meta, "model"), in.Model),
+		PlanMode:         false,
 		Name:             subagentSessionName(in.ToolCall, receiverThreadID),
 	})
 	if err != nil {
@@ -1563,6 +1581,7 @@ func (s *Service) startSubagentSubscription(in subagentSessionInput, child *sess
 			Mode:           in.Mode,
 			Effort:         firstNonEmptyString(stringMeta(in.ToolCall.Meta, "reasoningEffort"), in.Effort),
 			FastService:    in.FastService,
+			PlanMode:       false,
 			RootPath:       in.RootAbs,
 			AgentSessionID: receiverThreadID,
 			AgentCtxSeq:    child.AgentCtxSeq[in.Agent],
@@ -1947,6 +1966,7 @@ type SendRecoveryInput struct {
 	Mode               string
 	Effort             string
 	FastService        string
+	PlanMode           bool
 	RootAbs            string
 	CurrentSession     agenttypes.Session
 	Prompt             string

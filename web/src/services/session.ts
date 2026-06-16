@@ -84,6 +84,7 @@ export type Session = {
   mode?: string;
   effort?: string;
   fast_service?: string;
+  plan_mode?: boolean;
   name: string;
   created_at: string;
   updated_at: string;
@@ -752,6 +753,29 @@ class SessionService {
     return this.sendWSMessage(msg);
   }
 
+  async setPlanMode(
+    rootId: string,
+    sessionKey: string,
+    enabled: boolean,
+    requestId = this.createRequestId("plan"),
+  ): Promise<boolean> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    if (!rootId || !sessionKey) {
+      return false;
+    }
+    return this.sendWSMessage({
+      id: requestId,
+      type: "session.plan_mode.set",
+      payload: {
+        root_id: rootId,
+        session_key: sessionKey,
+        enabled,
+      },
+    });
+  }
+
   private resendPendingMessages() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
@@ -1312,6 +1336,10 @@ function withSessionMeta(
         : typeof (base as any).fast_service === "string"
           ? (base as any).fast_service
           : "",
+    plan_mode:
+      typeof (incoming as any).plan_mode === "boolean"
+        ? (incoming as any).plan_mode
+        : !!(base as any).plan_mode,
     name: preferIncomingText(incoming.name, base.name) || "",
     exchanges: Array.isArray(incoming.exchanges) ? [...incoming.exchanges] : [],
     exchange_aux: cloneExchangeAux(incoming.exchange_aux || base.exchange_aux),

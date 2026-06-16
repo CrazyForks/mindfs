@@ -20,6 +20,7 @@ type OpenOptions struct {
 	Model           string
 	Effort          string
 	FastService     string
+	PlanMode        bool
 	Probe           bool
 	RootPath        string
 	Command         string
@@ -53,6 +54,9 @@ func (r *Runtime) OpenSession(_ context.Context, opts OpenOptions) (types.Sessio
 			return codexsdk.ApprovalDecisionApproved, nil
 		},
 	}
+	if opts.PlanMode {
+		threadOptions.CollaborationMode = codexCollaborationMode(true)
+	}
 
 	var thread *codexsdk.Thread
 	if strings.TrimSpace(opts.ResumeSessionID) != "" {
@@ -73,8 +77,16 @@ func (r *Runtime) OpenSession(_ context.Context, opts OpenOptions) (types.Sessio
 		threadOpts:    threadOptions,
 		threadID:      threadID,
 		sessionKey:    opts.SessionKey,
+		planMode:      opts.PlanMode,
 		agentDebugLog: logs.NewAgentLogger(opts.RootPath, opts.SessionKey, opts.AgentName),
 	}, nil
+}
+
+func codexCollaborationMode(enabled bool) *codexsdk.CollaborationMode {
+	if enabled {
+		return codexsdk.NewCollaborationMode(codexsdk.CollaborationModePlan)
+	}
+	return codexsdk.NewCollaborationMode(codexsdk.CollaborationModeDefault)
 }
 
 func (r *Runtime) CloseAll() {
@@ -134,6 +146,7 @@ type session struct {
 	threadOpts codexsdk.ThreadOptions
 	threadID   string
 	sessionKey string
+	planMode   bool
 
 	mu            sync.RWMutex
 	onUpdate      func(types.Event)
@@ -283,11 +296,36 @@ func (s *session) SetModel(_ context.Context, model string) error {
 	}
 	opts := s.threadOpts
 	opts.Model = strings.TrimSpace(model)
+	opts.CollaborationMode = codexCollaborationMode(s.planMode)
 	thread := s.client.ResumeThread(threadID, opts)
 	s.mu.Lock()
 	s.thread = thread
 	s.threadOpts = opts
 	s.threadID = threadID
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *session) SetPlanMode(_ context.Context, enabled bool) error {
+	if s == nil || s.client == nil {
+		return errors.New("codex session not initialized")
+	}
+	threadID := strings.TrimSpace(s.SessionID())
+	if threadID == "" {
+		s.updateThreadIDFromThread()
+		threadID = strings.TrimSpace(s.SessionID())
+	}
+	if threadID == "" {
+		return errors.New("codex thread id unavailable")
+	}
+	opts := s.threadOpts
+	opts.CollaborationMode = codexCollaborationMode(enabled)
+	thread := s.client.ResumeThread(threadID, opts)
+	s.mu.Lock()
+	s.thread = thread
+	s.threadOpts = opts
+	s.threadID = threadID
+	s.planMode = enabled
 	s.mu.Unlock()
 	return nil
 }
