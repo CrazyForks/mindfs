@@ -12,6 +12,7 @@ import { savePrompt } from "../services/prompts";
 import { reportError } from "../services/error";
 import { rootBadgeButtonStyle } from "./rootBadgeStyle";
 import { copyText } from "../services/clipboard";
+import type { AgentStatus } from "../services/agents";
 
 type SessionItem = {
   key?: string;
@@ -31,6 +32,7 @@ type SessionItem = {
     role?: string;
     agent?: string;
     model?: string;
+    model_display_name?: string;
     effort?: string;
     fast_service?: string;
     content?: string;
@@ -70,6 +72,7 @@ type SessionViewerProps = {
   onEditUserMessage?: (content: string) => void;
   onForkAgentMessage?: (seq: number) => void | Promise<void>;
   targetSeqRequestKey?: string | number;
+  agents?: AgentStatus[];
 };
 
 type AskUserQuestionOption = {
@@ -229,11 +232,34 @@ function formatCompactTokenCount(value: number) {
   return String(Math.round(value));
 }
 
-function formatAssistantExchangeMeta(item: TimelineItem): string {
+function modelDisplayName(
+  agents: AgentStatus[] | undefined,
+  agentName?: string,
+  modelID?: string,
+): string {
+  const model = `${modelID || ""}`.trim();
+  if (!model) {
+    return "";
+  }
+  const agent = (agents || []).find(
+    (item) => item.name === `${agentName || ""}`.trim(),
+  );
+  const match = (agent?.models || []).find((item) => item.id === model);
+  return `${match?.name || ""}`.trim() || model;
+}
+
+function formatAssistantExchangeMeta(
+  item: TimelineItem,
+  agents?: AgentStatus[],
+): string {
   if (item.type !== "assistant_text") {
     return "";
   }
-  const parts = [item.model, item.effort]
+  const parts = [
+    `${item.modelDisplayName || ""}`.trim() ||
+      modelDisplayName(agents, item.agent, item.model),
+    item.effort,
+  ]
     .map((value) => `${value || ""}`.trim())
     .filter(Boolean);
   if (`${item.fastService || ""}`.trim().toLowerCase() === "on") {
@@ -943,6 +969,7 @@ function SessionViewerInner({
   onAskUserAnswer,
   onEditUserMessage,
   onForkAgentMessage,
+  agents,
 }: SessionViewerProps) {
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [relatedFilesCollapsed, setRelatedFilesCollapsed] = useState(false);
@@ -1363,7 +1390,7 @@ if (useInnerScrollContainer && !container) {
       ? collectAssistantFlowMarkdown(timeline, idx)
       : "";
     const assistantExchangeMeta = !isUser
-      ? formatAssistantExchangeMeta(item)
+      ? formatAssistantExchangeMeta(item, agents)
       : "";
     const canForkAgentMessage = !isUser && Number(item.seq || 0) > 0 && !!onForkAgentMessage;
     return (

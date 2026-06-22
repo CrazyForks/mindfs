@@ -38,6 +38,39 @@ func TestManagerPersistsParentSessionMetadata(t *testing.T) {
 	}
 }
 
+func TestManagerPersistsExchangeModelDisplayName(t *testing.T) {
+	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
+	manager := NewManager(root)
+
+	created, err := manager.Create(context.Background(), CreateInput{
+		Type:  TypeChat,
+		Agent: "claude",
+		Model: "opus",
+		Name:  "Chat",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	ctx := WithExchangeModelDisplayName(context.Background(), "glm-4.7")
+	if err := manager.AddExchangeForAgent(ctx, created, "agent", "reply", "claude", "", "", ""); err != nil {
+		t.Fatalf("add exchange: %v", err)
+	}
+
+	loaded, err := manager.Get(context.Background(), created.Key, 0)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if len(loaded.Exchanges) != 1 {
+		t.Fatalf("exchange count = %d, want 1", len(loaded.Exchanges))
+	}
+	if got := loaded.Exchanges[0].Model; got != "opus" {
+		t.Fatalf("exchange model = %q, want runtime id", got)
+	}
+	if got := loaded.Exchanges[0].ModelDisplayName; got != "glm-4.7" {
+		t.Fatalf("exchange model display name = %q, want snapshot", got)
+	}
+}
+
 func TestManagerStoresFullToolCallAndReturnsCompactedAux(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
 	manager := NewManager(root)

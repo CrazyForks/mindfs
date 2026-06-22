@@ -154,6 +154,7 @@ export type SessionItem = {
     thought_id?: string;
     timestamp?: string;
     model?: string;
+    model_display_name?: string;
 	    mode?: string;
 	    effort?: string;
 	    fast_service?: "" | "on" | "off";
@@ -270,6 +271,7 @@ type Exchange = {
   role: string;
   agent?: string;
   model?: string;
+  model_display_name?: string;
   mode?: string;
   effort?: string;
   fast_service?: "" | "on" | "off";
@@ -8047,6 +8049,7 @@ export function App({ onGoHome }: AppProps) {
   const sessionView = (
     <SessionViewer
       session={selectedSessionSnapshot}
+      agents={availableAgents}
       targetSeq={selectedSession?.search_seq}
       targetSeqRequestKey={selectedSession?.search_target_id}
       loading={selectedSessionLoading}
@@ -9142,6 +9145,7 @@ export function App({ onGoHome }: AppProps) {
             {drawerSessionSnapshot ? (
               <SessionViewer
                 session={drawerSessionSnapshot}
+                agents={availableAgents}
                 targetSeq={currentSession?.search_seq}
                 targetSeqRequestKey={currentSession?.search_target_id}
                 loading={false}

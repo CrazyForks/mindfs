@@ -1477,6 +1477,28 @@ func resolveRuntimeModel(current *session.Session, runtime agenttypes.Session, r
 	return strings.TrimSpace(current.Model)
 }
 
+func (s *Service) resolveExchangeModelDisplayName(agentName, model string) string {
+	agentName = strings.TrimSpace(agentName)
+	model = strings.TrimSpace(model)
+	if agentName != "claude" || model == "" || s == nil || s.Registry == nil {
+		return ""
+	}
+	prober := s.Registry.GetProber()
+	if prober == nil {
+		return ""
+	}
+	status, ok := prober.GetStatus(agentName)
+	if !ok {
+		return ""
+	}
+	for _, item := range status.Models {
+		if strings.TrimSpace(item.ID) == model {
+			return strings.TrimSpace(item.Name)
+		}
+	}
+	return ""
+}
+
 func resolveRuntimeEffort(_ string, current *session.Session, requested string) string {
 	if effort := strings.TrimSpace(requested); effort != "" {
 		return effort
@@ -1796,11 +1818,13 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) error {
 		return err
 	}
 	resolvedMode := resolveRuntimeMode(current, in.Mode)
-	if err := manager.AddExchangeForAgent(ctx, current, "user", in.Content, in.Agent, resolvedMode, resolvedEffort, resolvedFastService); err != nil {
+	modelDisplayName := s.resolveExchangeModelDisplayName(in.Agent, resolvedModel)
+	exchangeCtx := session.WithExchangeModelDisplayName(ctx, modelDisplayName)
+	if err := manager.AddExchangeForAgent(exchangeCtx, current, "user", in.Content, in.Agent, resolvedMode, resolvedEffort, resolvedFastService); err != nil {
 		log.Printf("[session] persist.user.error root=%s session=%s agent=%s err=%v", in.RootID, current.Key, in.Agent, err)
 		return err
 	}
-	if err := manager.AddExchangeForAgent(ctx, current, "agent", responseText, in.Agent, resolvedMode, resolvedEffort, resolvedFastService); err != nil {
+	if err := manager.AddExchangeForAgent(exchangeCtx, current, "agent", responseText, in.Agent, resolvedMode, resolvedEffort, resolvedFastService); err != nil {
 		log.Printf("[session] persist.agent.error root=%s session=%s agent=%s err=%v", in.RootID, current.Key, in.Agent, err)
 		return err
 	}

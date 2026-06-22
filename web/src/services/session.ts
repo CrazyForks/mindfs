@@ -103,6 +103,7 @@ export type Session = {
     role?: string;
     agent?: string;
     model?: string;
+    model_display_name?: string;
     mode?: string;
     effort?: string;
     fast_service?: string;
