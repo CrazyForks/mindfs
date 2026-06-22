@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
-	github.com/coder/acp-go-sdk v0.6.4-0.20260227160919-584abe6abe22
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/creack/pty v1.1.24
 	github.com/fanwenlin/codex-go-sdk v0.0.0
 	github.com/fsnotify/fsnotify v1.10.1

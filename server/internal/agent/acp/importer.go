@@ -73,7 +73,7 @@ func (i *Importer) ScanExternalSessions(ctx context.Context, in agenttypes.ListE
 
 	var cursor *string
 	for {
-		resp, err := proc.conn.UnstableListSessions(ctx, acpsdk.UnstableListSessionsRequest{
+		resp, err := proc.conn.ListSessions(ctx, acpsdk.ListSessionsRequest{
 			Cursor: cursor,
 			Cwd:    &cwd,
 		})
