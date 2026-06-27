@@ -549,6 +549,146 @@ func TestDedupeExchangeAuxBufferMergesDuplicateToolCalls(t *testing.T) {
 	}
 }
 
+func TestDedupeExchangeAuxBufferMergesTaskCreateAndUpdateByCallID(t *testing.T) {
+	items := []session.ExchangeAux{
+		{
+			Seq:  1,
+			Line: 0,
+			ToolCall: &agenttypes.ToolCall{
+				CallID: "claude-task-list:7",
+				Title:  "检查 git 状态",
+				Status: "running",
+				Kind:   agenttypes.ToolKindTask,
+				Meta: map[string]any{
+					"toolUseId": "call-create-1",
+					"taskId":    "7",
+					"taskTool":  "TaskCreate",
+				},
+			},
+		},
+		{
+			Seq:  1,
+			Line: 0,
+			ToolCall: &agenttypes.ToolCall{
+				CallID: "claude-task-list:7",
+				Status: "complete",
+				Kind:   agenttypes.ToolKindTask,
+				Meta: map[string]any{
+					"toolUseId":   "call-update-1",
+					"taskId":      "7",
+					"taskStatus":  "complete",
+					"taskTool":    "TaskUpdate",
+					"updatedOnly": true,
+				},
+			},
+		},
+	}
+
+	got := dedupeExchangeAuxBuffer(items)
+	if len(got) != 1 || got[0].ToolCall == nil {
+		t.Fatalf("deduped items = %#v, want one toolcall", got)
+	}
+	if got[0].ToolCall.CallID != "claude-task-list:7" {
+		t.Fatalf("callID = %q, want real task call id", got[0].ToolCall.CallID)
+	}
+	if got[0].ToolCall.Title != "检查 git 状态" {
+		t.Fatalf("title = %q, want original create title", got[0].ToolCall.Title)
+	}
+	if got[0].ToolCall.Status != "complete" {
+		t.Fatalf("status = %q, want latest task status", got[0].ToolCall.Status)
+	}
+	if got[0].ToolCall.Meta["taskId"] != "7" || got[0].ToolCall.Meta["taskTool"] != "TaskCreate" || got[0].ToolCall.Meta["updatedOnly"] != true {
+		t.Fatalf("meta = %#v, want merged task metadata", got[0].ToolCall.Meta)
+	}
+}
+
+func TestDedupeExchangeAuxBufferKeepsLatestTodoState(t *testing.T) {
+	items := []session.ExchangeAux{
+		{
+			Seq:  1,
+			Line: 0,
+			ToolCall: &agenttypes.ToolCall{
+				CallID: "todo-call-1",
+				Title:  "todos",
+				Status: "running",
+				Kind:   agenttypes.ToolKindTodo,
+				Content: []agenttypes.ToolCallContentItem{{
+					Type: "text",
+					Text: "- [ ] first",
+				}},
+			},
+		},
+		{
+			Seq:  1,
+			Line: 0,
+			ToolCall: &agenttypes.ToolCall{
+				CallID: "todo-call-2",
+				Title:  "todos",
+				Status: "running",
+				Kind:   agenttypes.ToolKindTodo,
+				Content: []agenttypes.ToolCallContentItem{{
+					Type: "text",
+					Text: "- [x] first\n- [ ] second",
+				}},
+			},
+		},
+		{
+			Seq:  1,
+			Line: 0,
+			Todo: &agenttypes.TodoUpdate{
+				Items: []agenttypes.TodoItem{{Content: "codex final", Status: "completed"}},
+			},
+		},
+	}
+
+	got := dedupeExchangeAuxBuffer(items)
+	if len(got) != 1 || got[0].Todo == nil {
+		t.Fatalf("deduped items = %#v, want latest codex todo", got)
+	}
+	if got[0].Todo.Items[0].Content != "codex final" {
+		t.Fatalf("todo = %#v, want latest state", got[0].Todo)
+	}
+}
+
+func TestDedupeExchangeAuxBufferMergesDuplicateTodoToolCallBeforeKeepingLatest(t *testing.T) {
+	items := []session.ExchangeAux{
+		{
+			Seq:  1,
+			Line: 0,
+			ToolCall: &agenttypes.ToolCall{
+				CallID: "todo-call-1",
+				Title:  "todos",
+				Status: "running",
+				Kind:   agenttypes.ToolKindTodo,
+				Content: []agenttypes.ToolCallContentItem{{
+					Type: "text",
+					Text: "- [ ] first",
+				}},
+			},
+		},
+		{
+			Seq:  1,
+			Line: 0,
+			ToolCall: &agenttypes.ToolCall{
+				CallID: "todo-call-1",
+				Status: "complete",
+				Kind:   agenttypes.ToolKindTodo,
+			},
+		},
+	}
+
+	got := dedupeExchangeAuxBuffer(items)
+	if len(got) != 1 || got[0].ToolCall == nil {
+		t.Fatalf("deduped items = %#v, want one todo toolcall", got)
+	}
+	if got[0].ToolCall.Status != "complete" {
+		t.Fatalf("status = %q, want complete", got[0].ToolCall.Status)
+	}
+	if len(got[0].ToolCall.Content) != 1 || got[0].ToolCall.Content[0].Text != "- [ ] first" {
+		t.Fatalf("content = %#v, want merged original content", got[0].ToolCall.Content)
+	}
+}
+
 func TestShouldPersistToolCallAuxSkipsClaudeTaskProgress(t *testing.T) {
 	if shouldPersistToolCallAux(agenttypes.ToolCall{
 		CallID:  "call-1",

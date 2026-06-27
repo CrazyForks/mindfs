@@ -1,0 +1,198 @@
+package acp
+
+import (
+	"testing"
+
+	types "mindfs/server/internal/agent/types"
+
+	acpsdk "github.com/coder/acp-go-sdk"
+)
+
+func TestWrapSessionUpdateRecognizesPlan(t *testing.T) {
+	update := wrapSessionUpdate("session-1", acpsdk.SessionUpdate{
+		Plan: &acpsdk.SessionUpdatePlan{
+			Entries: []acpsdk.PlanEntry{{Content: "Inspect files", Status: acpsdk.PlanEntryStatusPending}},
+		},
+	})
+	if update.Type != UpdateTypePlan {
+		t.Fatalf("update.Type = %q, want %q", update.Type, UpdateTypePlan)
+	}
+}
+
+func TestConvertEventMapsACPPlanToTodoUpdate(t *testing.T) {
+	event := convertEvent(SessionUpdate{
+		Type:      UpdateTypePlan,
+		SessionID: "session-1",
+		Raw: acpsdk.SessionUpdate{
+			Plan: &acpsdk.SessionUpdatePlan{
+				Entries: []acpsdk.PlanEntry{
+					{Content: "Inspect files", Status: acpsdk.PlanEntryStatusPending},
+					{Content: "Patch implementation", Status: acpsdk.PlanEntryStatusInProgress},
+					{Content: "Run tests", Status: acpsdk.PlanEntryStatusCompleted},
+				},
+			},
+		},
+	})
+	if event.Type != types.EventTypeTodoUpdate {
+		t.Fatalf("event.Type = %q, want %q", event.Type, types.EventTypeTodoUpdate)
+	}
+	todo, ok := event.Data.(types.TodoUpdate)
+	if !ok {
+		t.Fatalf("event.Data = %T, want TodoUpdate", event.Data)
+	}
+	if len(todo.Items) != 3 {
+		t.Fatalf("todo.Items = %#v, want 3 items", todo.Items)
+	}
+	if todo.Items[0].Content != "Inspect files" || todo.Items[0].Status != "pending" {
+		t.Fatalf("todo.Items[0] = %#v", todo.Items[0])
+	}
+	if todo.Items[1].Content != "Patch implementation" || todo.Items[1].Status != "in_progress" {
+		t.Fatalf("todo.Items[1] = %#v", todo.Items[1])
+	}
+	if todo.Items[2].Content != "Run tests" || todo.Items[2].Status != "completed" {
+		t.Fatalf("todo.Items[2] = %#v", todo.Items[2])
+	}
+}
+
+func TestConvertEventMapsACPPlanUpdateMarkdownAndFileToPlanUpdate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  acpsdk.SessionUpdate
+		want types.PlanUpdate
+	}{
+		{
+			name: "markdown",
+			raw: acpsdk.SessionUpdate{
+				PlanUpdate: &acpsdk.SessionPlanUpdate{
+					Plan: acpsdk.PlanUpdateContent{
+						Markdown: &acpsdk.PlanUpdateContentMarkdown{
+							Id:      "plan-1",
+							Content: "## Plan\n\n- Step",
+						},
+					},
+				},
+			},
+			want: types.PlanUpdate{ID: "plan-1", Content: "## Plan\n\n- Step"},
+		},
+		{
+			name: "file",
+			raw: acpsdk.SessionUpdate{
+				PlanUpdate: &acpsdk.SessionPlanUpdate{
+					Plan: acpsdk.PlanUpdateContent{
+						File: &acpsdk.PlanUpdateContentFile{
+							Id:  "plan-3",
+							Uri: "file:///tmp/PLAN.md",
+						},
+					},
+				},
+			},
+			want: types.PlanUpdate{ID: "plan-3", Content: "Plan file: file:///tmp/PLAN.md"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := convertEvent(SessionUpdate{
+				Type:      UpdateTypePlan,
+				SessionID: "session-1",
+				Raw:       tc.raw,
+			})
+			if event.Type != types.EventTypePlanUpdate {
+				t.Fatalf("event.Type = %q, want %q", event.Type, types.EventTypePlanUpdate)
+			}
+			got, ok := event.Data.(types.PlanUpdate)
+			if !ok {
+				t.Fatalf("event.Data = %T, want PlanUpdate", event.Data)
+			}
+			if got != tc.want {
+				t.Fatalf("plan = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConvertEventMapsACPPlanUpdateItemsToTodoUpdate(t *testing.T) {
+	event := convertEvent(SessionUpdate{
+		Type:      UpdateTypePlan,
+		SessionID: "session-1",
+		Raw: acpsdk.SessionUpdate{
+			PlanUpdate: &acpsdk.SessionPlanUpdate{
+				Plan: acpsdk.PlanUpdateContent{
+					Items: &acpsdk.PlanUpdateContentItems{
+						Id: "plan-2",
+						Entries: []acpsdk.PlanEntry{
+							{Content: "Verify behavior", Status: acpsdk.PlanEntryStatusCompleted},
+						},
+					},
+				},
+			},
+		},
+	})
+	if event.Type != types.EventTypeTodoUpdate {
+		t.Fatalf("event.Type = %q, want %q", event.Type, types.EventTypeTodoUpdate)
+	}
+	todo, ok := event.Data.(types.TodoUpdate)
+	if !ok {
+		t.Fatalf("event.Data = %T, want TodoUpdate", event.Data)
+	}
+	if len(todo.Items) != 1 || todo.Items[0].Content != "Verify behavior" || todo.Items[0].Status != "completed" {
+		t.Fatalf("todo = %#v", todo)
+	}
+}
+
+func TestConvertEventSuppressesACPTodoWriteToolCards(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  acpsdk.SessionUpdate
+		typ  UpdateType
+	}{
+		{
+			name: "pending todowrite",
+			typ:  UpdateTypeToolCall,
+			raw: acpsdk.SessionUpdate{
+				ToolCall: &acpsdk.SessionUpdateToolCall{
+					ToolCallId: "call-1",
+					Title:      "todowrite",
+					Kind:       acpsdk.ToolKindOther,
+					Status:     acpsdk.ToolCallStatusPending,
+					RawInput:   map[string]any{},
+				},
+			},
+		},
+		{
+			name: "complete todowrite",
+			typ:  UpdateTypeToolUpdate,
+			raw: acpsdk.SessionUpdate{
+				ToolCallUpdate: &acpsdk.SessionToolCallUpdate{
+					ToolCallId: "call-1",
+					Title:      acpsdk.Ptr("todowrite"),
+					Kind:       acpsdk.Ptr(acpsdk.ToolKindOther),
+					Status:     acpsdk.Ptr(acpsdk.ToolCallStatusCompleted),
+					RawInput:   map[string]any{"todos": []any{map[string]any{"content": "Inspect", "status": "pending"}}},
+				},
+			},
+		},
+		{
+			name: "summary todos",
+			typ:  UpdateTypeToolUpdate,
+			raw: acpsdk.SessionUpdate{
+				ToolCallUpdate: &acpsdk.SessionToolCallUpdate{
+					ToolCallId: "call-1",
+					Title:      acpsdk.Ptr("5 todos"),
+					Kind:       acpsdk.Ptr(acpsdk.ToolKindOther),
+					Status:     acpsdk.Ptr(acpsdk.ToolCallStatusCompleted),
+					RawOutput:  map[string]any{"metadata": map[string]any{"todos": []any{map[string]any{"content": "Inspect", "status": "pending"}}}},
+				},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := convertEvent(SessionUpdate{
+				Type:      tc.typ,
+				SessionID: "session-1",
+				Raw:       tc.raw,
+			})
+			if event.Type != "" {
+				t.Fatalf("event = %#v, want suppressed empty event", event)
+			}
+		})
+	}
+}

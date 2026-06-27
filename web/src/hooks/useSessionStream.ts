@@ -115,7 +115,7 @@ function settleRunningTools(items: TimelineItem[]): TimelineItem[] {
   return items.map((item) => {
     if (item.type !== "tool") return item;
     const kind = (item.toolCall.kind || "").toLowerCase();
-    if (kind === "ask_user") return item;
+    if (kind === "ask_user" || kind === "task") return item;
     const status = (item.toolCall.status || "").toLowerCase();
     if (
       status === "running" ||
@@ -236,6 +236,20 @@ function buildAssistantTimeline(
           ),
         type: "plan",
         planUpdate: aux.plan,
+        timestamp: ex.timestamp,
+      });
+      segmentIndex += 1;
+    } else if (aux.todo) {
+      out.push({
+        id: stableTimelineID(
+          "todo",
+          index * 1000 + segmentIndex,
+          JSON.stringify(aux.todo),
+          ex.timestamp,
+          ex.agent,
+        ),
+        type: "todo",
+        todoUpdate: aux.todo,
         timestamp: ex.timestamp,
       });
       segmentIndex += 1;

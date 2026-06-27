@@ -167,6 +167,7 @@ const (
 	UpdateTypeThoughtChunk UpdateType = "thought_chunk"
 	UpdateTypeToolCall     UpdateType = "tool_call"
 	UpdateTypeToolUpdate   UpdateType = "tool_update"
+	UpdateTypePlan         UpdateType = "plan_update"
 	UpdateTypeMessageDone  UpdateType = "message_done"
 )
 
@@ -825,6 +826,8 @@ func wrapSessionUpdate(sessionID string, update acp.SessionUpdate) SessionUpdate
 		result.Type = UpdateTypeToolCall
 	case update.ToolCallUpdate != nil:
 		result.Type = UpdateTypeToolUpdate
+	case update.Plan != nil || update.PlanUpdate != nil:
+		result.Type = UpdateTypePlan
 	}
 	return result
 }

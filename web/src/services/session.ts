@@ -85,6 +85,7 @@ export type ExchangeAux = {
   toolcall?: ToolCall | null;
   thought?: string | null;
   thought_id?: string;
+  todo?: TodoUpdate | null;
   plan?: PlanUpdate | null;
   compact?: CompactNotice | null;
 };

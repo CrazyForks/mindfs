@@ -2003,6 +2003,16 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) error {
 					})
 				}
 			}
+			if update.Type == agenttypes.EventTypeTodoUpdate {
+				if todo, ok := update.Data.(agenttypes.TodoUpdate); ok && len(todo.Items) > 0 {
+					todoCopy := todo
+					auxBuffer = append(auxBuffer, session.ExchangeAux{
+						Seq:  plannedAssistantSeq,
+						Line: currentAssistantLine(responseText),
+						Todo: &todoCopy,
+					})
+				}
+			}
 			if update.Type == agenttypes.EventTypeCompact {
 				if compact, ok := update.Data.(agenttypes.CompactNotice); ok {
 					compactCopy := compact
@@ -2747,6 +2757,16 @@ func attachBackgroundSessionUpdates(ctx context.Context, in subagentSessionInput
 				})
 			}
 		}
+		if update.Type == agenttypes.EventTypeTodoUpdate {
+			if todo, ok := update.Data.(agenttypes.TodoUpdate); ok && len(todo.Items) > 0 {
+				todoCopy := todo
+				auxBuffer = append(auxBuffer, session.ExchangeAux{
+					Seq:  plannedAssistantSeq,
+					Line: currentAssistantLine(responseText),
+					Todo: &todoCopy,
+				})
+			}
+		}
 		if update.Type == agenttypes.EventTypeCompact {
 			if compact, ok := update.Data.(agenttypes.CompactNotice); ok {
 				compactCopy := compact
@@ -3196,6 +3216,7 @@ func dedupeExchangeAuxBuffer(items []session.ExchangeAux) []session.ExchangeAux 
 	seenToolCallIDs := make(map[string]int, len(items))
 	seenPlanIDs := make(map[string]struct{}, len(items))
 	seenCompactIDs := make(map[string]struct{}, len(items))
+	seenTodo := false
 	out := make([]session.ExchangeAux, 0, len(items))
 	for i := len(items) - 1; i >= 0; i-- {
 		item := items[i]
@@ -3212,6 +3233,13 @@ func dedupeExchangeAuxBuffer(items []session.ExchangeAux) []session.ExchangeAux 
 				continue
 			}
 			seenToolCallIDs[callID] = len(out)
+		}
+		isTodo := item.Todo != nil || (item.ToolCall != nil && item.ToolCall.Kind == agenttypes.ToolKindTodo)
+		if isTodo {
+			if seenTodo {
+				continue
+			}
+			seenTodo = true
 		}
 		if item.Plan != nil {
 			planID := strings.TrimSpace(item.Plan.ID)
@@ -3276,6 +3304,9 @@ func mergeBufferedToolCall(base, next agenttypes.ToolCall) agenttypes.ToolCall {
 		}
 		for key, value := range next.Meta {
 			merged.Meta[key] = value
+		}
+		if stringMeta(base.Meta, "taskTool") == "TaskCreate" && stringMeta(next.Meta, "taskTool") == "TaskUpdate" {
+			merged.Meta["taskTool"] = "TaskCreate"
 		}
 	}
 	return merged

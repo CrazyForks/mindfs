@@ -371,6 +371,40 @@ func TestManagerStoresPlanAndCompactAux(t *testing.T) {
 	}
 }
 
+func TestManagerStoresTodoAux(t *testing.T) {
+	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
+	manager := NewManager(root)
+
+	created, err := manager.Create(context.Background(), CreateInput{
+		Type: TypeChat,
+		Name: "Chat",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	if err := manager.AddExchangeAux(context.Background(), created.Key, ExchangeAux{
+		Seq:  2,
+		Line: 0,
+		Todo: &agenttypes.TodoUpdate{
+			Items: []agenttypes.TodoItem{{Content: "persist todos", Status: "in_progress"}},
+		},
+	}); err != nil {
+		t.Fatalf("add todo aux: %v", err)
+	}
+
+	aux, err := manager.GetExchangeAux(context.Background(), created.Key, 0)
+	if err != nil {
+		t.Fatalf("get aux: %v", err)
+	}
+	if len(aux[2]) != 1 || aux[2][0].Todo == nil {
+		t.Fatalf("aux[2] = %#v, want todo aux", aux[2])
+	}
+	if got := aux[2][0].Todo.Items[0].Content; got != "persist todos" {
+		t.Fatalf("todo content = %q, want persist todos", got)
+	}
+}
+
 func TestManagerGetFullToolCallReadsPendingAuxBeforeDisk(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
 	manager := NewManager(root)

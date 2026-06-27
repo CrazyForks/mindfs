@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -177,6 +178,82 @@ func TestClaudeTaskProgressDoesNotOverridePendingToolTitle(t *testing.T) {
 	}
 	if toolCall.Meta["progress"] != "Acknowledging the user's instructions" {
 		t.Fatalf("progress meta = %#v", toolCall.Meta)
+	}
+}
+
+func TestClaudeTaskCreateAndUpdateToolUseMapToTaskKind(t *testing.T) {
+	for _, name := range []string{"TaskCreate", "TaskUpdate", "TaskList", "TaskGet"} {
+		if got := mapToolKind(name); got != types.ToolKindTask {
+			t.Fatalf("mapToolKind(%q) = %q, want task", name, got)
+		}
+	}
+}
+
+func TestClaudeTaskCreateResultUsesReturnedTaskID(t *testing.T) {
+	parentID := "call-create-1"
+	s := &session{}
+	create := newRunningToolCall(
+		parentID,
+		"TaskCreate",
+		"tool_use",
+		json.RawMessage(`{"subject":"检查 git 状态","description":"检查当前 git 修改状态","activeForm":"检查 git 状态"}`),
+	)
+	create.Meta = mergeToolCallMeta(create.Meta, map[string]any{
+		"taskTool":  "TaskCreate",
+		"toolUseId": parentID,
+	})
+	s.trackPendingToolCall(create)
+
+	update, ok := s.toolResultUpdate(claudeagent.UserMessage{
+		ParentToolUseID: &parentID,
+		ToolUseResult:   map[string]any{"task": map[string]any{"id": "7", "subject": "检查 git 状态"}},
+	})
+	if !ok {
+		t.Fatal("toolResultUpdate returned ok=false")
+	}
+	if update.CallID != "claude-task-list:7" || update.Status != "running" {
+		t.Fatalf("update = %#v, want returned task id and running status", update)
+	}
+	if update.Title != "检查 git 状态" || update.Meta["taskId"] != "7" || update.Meta["taskTool"] != "TaskCreate" {
+		t.Fatalf("update = %#v, want create title and real task meta", update)
+	}
+}
+
+func TestClaudeTaskUpdateResultPreservesTaskStatus(t *testing.T) {
+	parentID := "call-update-1"
+	s := &session{}
+	updateBase := newRunningToolCall(
+		parentID,
+		"TaskUpdate",
+		"tool_use",
+		json.RawMessage(`{"taskId":"7","status":"completed"}`),
+	)
+	updateBase.Meta = mergeToolCallMeta(updateBase.Meta, map[string]any{
+		"taskTool":  "TaskUpdate",
+		"toolUseId": parentID,
+	})
+	s.trackPendingToolCall(updateBase)
+
+	update, ok := s.toolResultUpdate(claudeagent.UserMessage{
+		ParentToolUseID: &parentID,
+		ToolUseResult: map[string]any{
+			"success":       true,
+			"taskId":        "7",
+			"statusChange":  map[string]any{"from": "pending", "to": "completed"},
+			"updatedFields": []any{"status"},
+		},
+	})
+	if !ok {
+		t.Fatal("toolResultUpdate returned ok=false")
+	}
+	if update.CallID != "claude-task-list:7" || update.Status != "complete" {
+		t.Fatalf("update = %#v, want real complete task update", update)
+	}
+	if update.Title != "" || len(update.Content) != 0 {
+		t.Fatalf("update = %#v, want status-only task update", update)
+	}
+	if update.Meta["taskId"] != "7" || update.Meta["taskStatus"] != "complete" {
+		t.Fatalf("meta = %#v, want real task id and status", update.Meta)
 	}
 }
 
