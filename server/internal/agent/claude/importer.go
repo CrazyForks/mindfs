@@ -281,6 +281,9 @@ func sortedSessionJSONLFiles(baseDir string) ([]sessionFileCandidate, error) {
 		if d == nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
 			return nil
 		}
+		if isClaudeSubagentSessionFile(baseDir, path) {
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil {
 			if apperr.IsPermission(err) {
@@ -304,6 +307,19 @@ func sortedSessionJSONLFiles(baseDir string) ([]sessionFileCandidate, error) {
 		return items[i].Path > items[j].Path
 	})
 	return items, nil
+}
+
+func isClaudeSubagentSessionFile(baseDir, path string) bool {
+	rel, err := filepath.Rel(baseDir, path)
+	if err != nil {
+		return false
+	}
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "subagents" {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *Importer) projectDir(rootPath string) string {
