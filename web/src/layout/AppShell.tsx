@@ -96,7 +96,7 @@ export function AppShell({
   sidebarsSwapped = false,
 }: AppShellProps) {
   const { isMobile, isTablet } = useResponsive();
-  
+
   const sidebarWidth = isMobile ? "0px" : (isTablet ? "200px" : "260px");
   const rightWidth = isMobile ? "0px" : (rightSidebar ? (isTablet ? "240px" : "280px") : "0px");
   const mobileHeight = "var(--mindfs-viewport-height, 100dvh)";
@@ -135,7 +135,7 @@ export function AppShell({
     isolation: "isolate",
     boxSizing: "border-box",
     transition: "grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    "--mindfs-actionbar-bottom-padding": "calc(env(safe-area-inset-bottom, 0px) + 2px)",
+    "--mindfs-actionbar-bottom-padding": "calc(var(--mindfs-safe-area-bottom) + 12px)",
   };
 
   const mobileSidebarStyle = (side: 'left' | 'right'): React.CSSProperties => ({
