@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStream, type TimelineItem } from "../hooks/useSessionStream";
 import type { TodoUpdate } from "../services/session";
 import { ThinkingBlock } from "./stream/ThinkingBlock";
@@ -1033,6 +1033,7 @@ function SessionViewerInner({
   const copyResetTimersRef = useRef<Record<string, number>>({});
   const relatedFilesDefaultStateRef = useRef<string>("");
   const userSummaryRootRef = useRef<HTMLDivElement | null>(null);
+  const userSummaryListRef = useRef<HTMLDivElement | null>(null);
   const sessionKey = session?.key || session?.session_key || null;
   const exchanges = Array.isArray(session?.exchanges) ? session.exchanges : [];
   const isAwaiting = !!(session as any)?.pending;
@@ -1051,6 +1052,7 @@ function SessionViewerInner({
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [userSummaryHoverOpen, setUserSummaryHoverOpen] = useState(false);
   const [userSummaryPinnedOpen, setUserSummaryPinnedOpen] = useState(false);
+  const [currentUserMessageIndex, setCurrentUserMessageIndex] = useState(0);
   const viewportStickFrameRef = useRef<number | null>(null);
 
   const cancelTargetSeqScroll = () => {
@@ -1095,6 +1097,7 @@ function SessionViewerInner({
     setCopiedMessageKeys({});
     setUserSummaryHoverOpen(false);
     setUserSummaryPinnedOpen(false);
+    setCurrentUserMessageIndex(0);
     relatedFilesDefaultStateRef.current = "";
     Object.values(copyResetTimersRef.current).forEach((timer) =>
       window.clearTimeout(timer),
@@ -1114,6 +1117,56 @@ function SessionViewerInner({
     [timeline],
   );
   const userSummaryOpen = userSummaryHoverOpen || userSummaryPinnedOpen;
+
+  const readCurrentUserMessageIndex = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) {
+      return 0;
+    }
+    const nodes = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-user-message-index]"),
+    );
+    if (nodes.length === 0) {
+      return 0;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const viewportTop = containerRect.top;
+    const viewportBottom = containerRect.bottom;
+    let firstVisible = 0;
+    let firstFullyEntered = 0;
+    let lastBeforeViewport = 0;
+    for (const node of nodes) {
+      const index = Number(node.dataset.userMessageIndex || 0);
+      if (!index) {
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      if (rect.bottom < viewportTop) {
+        lastBeforeViewport = index;
+        continue;
+      }
+      if (rect.top > viewportBottom) {
+        break;
+      }
+      const isVisible = rect.bottom >= viewportTop && rect.top <= viewportBottom;
+      if (isVisible && !firstVisible) {
+        firstVisible = index;
+      }
+      if (rect.top >= viewportTop && !firstFullyEntered) {
+        firstFullyEntered = index;
+      }
+    }
+    return (
+      firstFullyEntered ||
+      firstVisible ||
+      lastBeforeViewport ||
+      Number(nodes[0]?.dataset.userMessageIndex || 0)
+    );
+  }, []);
+
+  const refreshCurrentUserMessageIndex = useCallback(() => {
+    setCurrentUserMessageIndex(readCurrentUserMessageIndex());
+  }, [readCurrentUserMessageIndex]);
 
   const scrollToUserMessageSummary = (index: number) => {
     const container = scrollRef.current;
@@ -1146,7 +1199,27 @@ function SessionViewerInner({
     setShowJumpToLatest(nextTop < maxTop - 40);
     setUserSummaryPinnedOpen(false);
     setUserSummaryHoverOpen(false);
+    setCurrentUserMessageIndex(index);
   };
+
+  useEffect(() => {
+    if (!userSummaryOpen) {
+      return;
+    }
+    const nextIndex = readCurrentUserMessageIndex();
+    setCurrentUserMessageIndex(nextIndex);
+    if (!nextIndex) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const list = userSummaryListRef.current;
+      const item = list?.querySelector<HTMLElement>(
+        `[data-user-summary-index="${nextIndex}"]`,
+      );
+      item?.scrollIntoView({ block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [readCurrentUserMessageIndex, userSummaryOpen, userMessageSummaries.length]);
 
   useEffect(() => {
     if (!userSummaryOpen) {
@@ -1261,6 +1334,7 @@ if (useInnerScrollContainer && !container) {
         shouldStickToBottomRef.current = true;
       }
       setShowJumpToLatest(!shouldStickToBottomRef.current);
+      refreshCurrentUserMessageIndex();
       lastScrollTop = el.scrollTop;
     };
     updateStickiness();
@@ -1268,7 +1342,7 @@ if (useInnerScrollContainer && !container) {
     return () => {
       el.removeEventListener("scroll", updateStickiness);
     };
-  }, [sessionKey, useInnerScrollContainer]);
+  }, [refreshCurrentUserMessageIndex, sessionKey, useInnerScrollContainer]);
 
   useEffect(() => {
     if (!targetSeq) {
@@ -2746,7 +2820,10 @@ if (useInnerScrollContainer && !container) {
             {userMessageSummaries.length > 0 ? (
               <div
                 ref={userSummaryRootRef}
-                onMouseEnter={() => setUserSummaryHoverOpen(true)}
+                onMouseEnter={() => {
+                  refreshCurrentUserMessageIndex();
+                  setUserSummaryHoverOpen(true);
+                }}
                 onMouseLeave={() => setUserSummaryHoverOpen(false)}
                 style={{
                   position: "relative",
@@ -2784,47 +2861,58 @@ if (useInnerScrollContainer && !container) {
                         boxSizing: "border-box",
                       }}
                     >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        {userMessageSummaries.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => scrollToUserMessageSummary(item.index)}
-                            style={{
-                              width: "100%",
-                              border: "none",
-                              background: "transparent",
-                              display: "block",
-                              padding: "6px 8px",
-                              borderRadius: "6px",
-                              cursor: "pointer",
-                              textAlign: "left",
-                              color: "var(--text-primary)",
-                            }}
-                            onMouseEnter={(event) => {
-                              event.currentTarget.style.background = "var(--menu-active-bg)";
-                            }}
-                            onMouseLeave={(event) => {
-                              event.currentTarget.style.background = "transparent";
-                            }}
-                          >
-                            <span
-                              title={item.summary}
+                      <div
+                        ref={userSummaryListRef}
+                        style={{ display: "flex", flexDirection: "column", gap: "2px" }}
+                      >
+                        {userMessageSummaries.map((item) => {
+                          const isCurrent = item.index === currentUserMessageIndex;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              data-user-summary-index={item.index}
+                              onClick={() => scrollToUserMessageSummary(item.index)}
                               style={{
+                                width: "100%",
+                                border: "none",
+                                background: isCurrent
+                                  ? "rgba(148, 163, 184, 0.22)"
+                                  : "transparent",
                                 display: "block",
-                                minWidth: 0,
-                                fontSize: "12px",
-                                lineHeight: "18px",
+                                padding: "6px 8px",
+                                borderRadius: "6px",
+                                cursor: "pointer",
+                                textAlign: "left",
                                 color: "var(--text-primary)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
+                              }}
+                              onMouseEnter={(event) => {
+                                event.currentTarget.style.background = "var(--menu-active-bg)";
+                              }}
+                              onMouseLeave={(event) => {
+                                event.currentTarget.style.background = isCurrent
+                                  ? "rgba(148, 163, 184, 0.22)"
+                                  : "transparent";
                               }}
                             >
-                              {item.summary}
-                            </span>
-                          </button>
-                        ))}
+                              <span
+                                title={item.summary}
+                                style={{
+                                  display: "block",
+                                  minWidth: 0,
+                                  fontSize: "12px",
+                                  lineHeight: "18px",
+                                  color: "var(--text-primary)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {item.summary}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </>
@@ -2832,6 +2920,7 @@ if (useInnerScrollContainer && !container) {
                 <button
                   type="button"
                   onClick={() => {
+                    refreshCurrentUserMessageIndex();
                     setUserSummaryPinnedOpen((open) => {
                       const nextOpen = !open;
                       if (!nextOpen) {
