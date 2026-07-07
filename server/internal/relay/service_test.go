@@ -48,6 +48,7 @@ func TestCredentialsStoreSaveLoad(t *testing.T) {
 		Relay: RelayCredentials{
 			DeviceToken: "dev_123",
 			NodeID:      "node_123",
+			NodeName:    "Office Mac",
 			Endpoint:    "wss://relay.example.com/ws/connector",
 		},
 	}
@@ -183,7 +184,7 @@ func TestServicePollBind(t *testing.T) {
 				StatusCode: http.StatusOK,
 				Status:     "200 OK",
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(`{"status":"confirmed","device_token":"dev_live","node_id":"node_live","endpoint":"wss://relay.example.com/ws/connector"}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"status":"confirmed","device_token":"dev_live","node_id":"node_live","node_name":"Office Mac","endpoint":"wss://relay.example.com/ws/connector"}`)),
 			}, nil
 		}),
 	}
@@ -197,6 +198,37 @@ func TestServicePollBind(t *testing.T) {
 	}
 	if result.Credentials.DeviceToken != "dev_live" {
 		t.Fatalf("device token = %q", result.Credentials.DeviceToken)
+	}
+	if result.Credentials.NodeName != "Office Mac" {
+		t.Fatalf("node name = %q", result.Credentials.NodeName)
+	}
+}
+
+func TestServiceStoreRelayNodeNameFromHandshake(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("HOME", configRoot)
+
+	svc, err := NewService(":7331", false)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	creds := RelayCredentials{
+		DeviceToken: "dev_live",
+		NodeID:      "node_live",
+		Endpoint:    "wss://relay.example.com/ws/connector",
+	}
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set(relayNodeNameHeader, "Renamed Mac")
+
+	svc.storeRelayNodeName(creds, resp)
+
+	got, err := svc.store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Relay.NodeName != "Renamed Mac" {
+		t.Fatalf("node name = %q", got.Relay.NodeName)
 	}
 }
 
@@ -279,7 +311,7 @@ func TestManagerPollConfirmedStartsRelay(t *testing.T) {
 					StatusCode: http.StatusOK,
 					Status:     "200 OK",
 					Header:     http.Header{"Content-Type": []string{"application/json"}},
-					Body:       io.NopCloser(strings.NewReader(`{"status":"confirmed","device_token":"dev_live","node_id":"node_live","endpoint":"wss://relay.example.com/ws/connector"}`)),
+					Body:       io.NopCloser(strings.NewReader(`{"status":"confirmed","device_token":"dev_live","node_id":"node_live","node_name":"Office Mac","endpoint":"wss://relay.example.com/ws/connector"}`)),
 				}, nil
 			case req.URL.String() == "http://localhost:7331/health":
 				return &http.Response{
@@ -314,6 +346,9 @@ func TestManagerPollConfirmedStartsRelay(t *testing.T) {
 				}
 				if creds.Relay.NodeID != "node_live" {
 					t.Fatalf("node id = %q", creds.Relay.NodeID)
+				}
+				if creds.Relay.NodeName != "Office Mac" {
+					t.Fatalf("node name = %q", creds.Relay.NodeName)
 				}
 				return
 			}

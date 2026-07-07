@@ -29,6 +29,7 @@ const (
 )
 
 const relayDeviceIDHeader = "X-MindFS-Device-ID"
+const relayNodeNameHeader = "X-MindFS-Relay-Node-Name"
 
 type Service struct {
 	localAddr string
@@ -42,6 +43,7 @@ type Service struct {
 type credentialResponse struct {
 	DeviceToken string `json:"device_token"`
 	NodeID      string `json:"node_id"`
+	NodeName    string `json:"node_name"`
 	Endpoint    string `json:"endpoint"`
 }
 
@@ -207,6 +209,7 @@ func (s *Service) PollBind(ctx context.Context, baseURL, pendingCode string) (Bi
 		result.Credentials = RelayCredentials{
 			DeviceToken: strings.TrimSpace(out.DeviceToken),
 			NodeID:      strings.TrimSpace(out.NodeID),
+			NodeName:    strings.TrimSpace(out.NodeName),
 			Endpoint:    strings.TrimSpace(out.Endpoint),
 		}
 	}
@@ -264,6 +267,7 @@ func (s *Service) runSession(ctx context.Context, creds RelayCredentials) error 
 		return err
 	}
 	defer conn.Close()
+	s.storeRelayNodeName(creds, resp)
 
 	wsConn := NewWebSocketNetConn(conn)
 	yamuxConfig := yamux.DefaultConfig()
@@ -441,6 +445,20 @@ func (s *Service) waitForLocalServer(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 		}
+	}
+}
+
+func (s *Service) storeRelayNodeName(creds RelayCredentials, resp *http.Response) {
+	if s == nil || s.store == nil || resp == nil {
+		return
+	}
+	nodeName := strings.TrimSpace(resp.Header.Get(relayNodeNameHeader))
+	if nodeName == "" || nodeName == strings.TrimSpace(creds.NodeName) {
+		return
+	}
+	creds.NodeName = nodeName
+	if err := s.store.Save(Credentials{Relay: creds}); err != nil {
+		log.Printf("[relay] save relay node name failed: %v", err)
 	}
 }
 

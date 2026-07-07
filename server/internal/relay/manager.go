@@ -149,6 +149,9 @@ func (m *Manager) statusLocked() Status {
 	if err == nil && creds.Relay.DeviceToken != "" && creds.Relay.Endpoint != "" {
 		status.Bound = true
 		status.NodeID = creds.Relay.NodeID
+		if nodeName := strings.TrimSpace(creds.Relay.NodeName); nodeName != "" {
+			status.NodeName = nodeName
+		}
 		if status.RelayBaseURL == "" {
 			status.RelayBaseURL = endpointBaseURL(creds.Relay.Endpoint)
 		}

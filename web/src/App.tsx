@@ -147,6 +147,15 @@ const CHILD_SESSION_PAGE_SIZE = 100;
 const MULTI_PROJECT_SESSION_LIMIT = 6;
 const SESSION_PAGE_SIZE = 50;
 const MULTI_PROJECT_SESSION_STORAGE_KEY = "mindfs-multi-project-session-list";
+const APP_DOCUMENT_TITLE = "MindFS";
+
+function formatDocumentTitle(relayStatus: RelayStatusPayload | null): string {
+  if (!isRelayNodePage()) {
+    return APP_DOCUMENT_TITLE;
+  }
+  const nodeName = String(relayStatus?.node_name || "").trim();
+  return nodeName ? `${nodeName} - ${APP_DOCUMENT_TITLE}` : APP_DOCUMENT_TITLE;
+}
 
 function isTopLevelSessionItem(session: SessionItem): boolean {
   return !String(session?.parent_session_key || "").trim();
@@ -9907,6 +9916,10 @@ export function App({ onGoHome }: AppProps) {
       setE2eeState(state.e2ee);
     });
   }, []);
+
+  useEffect(() => {
+    document.title = formatDocumentTitle(relayStatus);
+  }, [relayStatus]);
 
   useEffect(() => {
     return e2eeService.subscribe((state) => {

@@ -18,6 +18,7 @@ type Credentials struct {
 type RelayCredentials struct {
 	DeviceToken string `json:"device_token"`
 	NodeID      string `json:"node_id"`
+	NodeName    string `json:"node_name,omitempty"`
 	Endpoint    string `json:"endpoint"`
 }
 
