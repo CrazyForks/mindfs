@@ -703,7 +703,7 @@ func (s *session) ListModels(ctx context.Context) (types.ModelList, error) {
 	if s == nil || s.client == nil {
 		return types.ModelList{}, errors.New("codex session not initialized")
 	}
-	resp, err := s.client.ListModels(ctx, codexsdk.ModelListParams{})
+	resp, err := s.client.ListModels(ctx, codexListModelsParams())
 	if err != nil {
 		return types.ModelList{}, err
 	}
@@ -734,6 +734,11 @@ func (s *session) ListModels(ctx context.Context) (types.ModelList, error) {
 		CurrentModelID: currentModelID,
 		Models:         models,
 	}, nil
+}
+
+func codexListModelsParams() codexsdk.ModelListParams {
+	includeHidden := true
+	return codexsdk.ModelListParams{IncludeHidden: &includeHidden}
 }
 
 func codexModelEfforts(options []codexsdk.ReasoningEffortOption) []string {

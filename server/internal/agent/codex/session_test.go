@@ -10,6 +10,16 @@ import (
 	codextypes "github.com/fanwenlin/codex-go-sdk/types"
 )
 
+func TestCodexListModelsParamsIncludesHiddenModels(t *testing.T) {
+	params := codexListModelsParams()
+	if params.IncludeHidden == nil {
+		t.Fatal("IncludeHidden is nil")
+	}
+	if !*params.IncludeHidden {
+		t.Fatal("IncludeHidden = false, want true")
+	}
+}
+
 func TestHandleRawEventPlanDeltaAggregatesPlanUpdates(t *testing.T) {
 	s := &session{}
 	var updates []agenttypes.Event
