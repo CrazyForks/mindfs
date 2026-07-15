@@ -1829,7 +1829,13 @@ export function App({ onGoHome }: AppProps) {
       }
       const meta = await getCachedTaskMeta(targetRoot);
       const details = await fetchTaskDetails(targetRoot, force ? undefined : { after: meta?.newestUpdatedAt || "" });
-      applyTaskDetails(targetRoot, details);
+      if (details.length > 0) {
+        applyTaskDetails(targetRoot, details);
+      }
+      if (!force && meta?.newestUpdatedAt) {
+        const recent = await fetchTaskDetails(targetRoot, { limit: 20 });
+        applyTaskDetails(targetRoot, recent);
+      }
     } catch (err) {
       reportError("file.write_failed", String((err as Error)?.message || t("task.loadFailed")));
     } finally {
@@ -1861,7 +1867,7 @@ export function App({ onGoHome }: AppProps) {
 	    setSelectedKanbanTaskId("");
 	  }, [kanbanTasks, selectedKanbanTaskId]);
 
-	  const handleMoveKanbanTask = useCallback(async (task: KanbanTask, action: "next" | "prev" | "pause" | "resume" | "complete" | "cancel") => {
+	  const handleMoveKanbanTask = useCallback(async (task: KanbanTask, action: "next" | "run-now" | "prev" | "pause" | "resume" | "complete" | "cancel") => {
     const rootId = task.root_id || currentRootIdRef.current;
     if (!rootId) return;
     let reason = "";
@@ -12224,6 +12230,7 @@ export function App({ onGoHome }: AppProps) {
                         : [];
                     const taskSessionPending = taskSessionKeys.some((key) => !!sessionByKey[key]?.pending);
                     const taskQueued = task.status === "queued";
+                    const taskBlockedByConcurrency = taskQueued && !task.scheduler_admitted && !taskSessionKeys.length;
                     const auxFlags = task.aux_flags || {};
                     const taskSessionError = parseTaskSessionErrorMessage(auxFlags.session_error);
                     const taskSessionErrorDetails = parseTaskSessionErrorDetails(auxFlags.session_error);
@@ -12238,7 +12245,7 @@ export function App({ onGoHome }: AppProps) {
                     const taskTerminal = isTerminalKanbanTask(task);
                     const taskStageRunning = task.current_stage_status === "running";
                     const taskCanComplete = !taskTerminal && task.status === "waiting_user" && isTaskAtLastKnownStage(task);
-                    const showTaskAdvanceButton = !taskTerminal && !taskStageRunning;
+                    const showTaskAdvanceButton = !taskTerminal && !taskStageRunning && !taskQueued;
                     const taskStatusText = taskStatusLabel(task.status || "", t);
 	                    const taskNumberLabel = task.task_number ? `#${task.task_number}` : "";
 	                    const taskStageName = task.current_stage_name || (task.current_stage_index >= 0 ? t("task.stageLabel", { index: task.current_stage_index + 1 }) : "");
@@ -12402,17 +12409,38 @@ export function App({ onGoHome }: AppProps) {
                                 );
                               })
                             ) : taskQueued ? (
-                              <span
-                                title={t("task.waitingSchedule")}
-                                aria-label={t("task.waitingSchedule")}
-                                style={{
-                                  ...taskCardIconButtonStyle(),
-                                  cursor: "default",
-                                  color: "var(--accent-color)",
-                                }}
-                              >
-                                <TaskQueuedSpinnerIcon />
-                              </span>
+                              <>
+                                <span
+                                  title={t("task.waitingSchedule")}
+                                  aria-label={t("task.waitingSchedule")}
+                                  style={{
+                                    ...taskCardIconButtonStyle(),
+                                    cursor: "default",
+                                    color: "var(--accent-color)",
+                                  }}
+                                >
+                                  <TaskQueuedSpinnerIcon />
+                                </span>
+                                {taskBlockedByConcurrency ? (
+                                  <button
+                                    type="button"
+                                    title={t("task.runNow")}
+                                    aria-label={t("task.runNow")}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleMoveKanbanTask(task, "run-now");
+                                    }}
+                                    style={{
+                                      ...taskCardIconButtonStyle(),
+                                      width: "17px",
+                                      marginLeft: "-3px",
+                                      color: "#2563eb",
+                                    }}
+                                  >
+                                    <TaskRunNowIcon />
+                                  </button>
+                                ) : null}
+                              </>
                             ) : null}
 	                            {taskSessionError && !(showTaskStatus && task.status === "fail") ? (
                               <button
@@ -14388,6 +14416,25 @@ function TaskQueuedSpinnerIcon() {
       style={{ animation: "mindfs-update-spin 0.9s linear infinite" }}
     >
       <path d="M21 12a9 9 0 1 1-6.2-8.56" />
+    </svg>
+  );
+}
+
+function TaskRunNowIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ display: "block", transform: "translateX(-1px) scale(1.06)", transformOrigin: "center" }}
+    >
+      <path d="M0 0h24v24H0z" fill="none" />
+      <path
+        fill="currentColor"
+        d="M14.5 4h.005M14.5 4L12 10l5 2.898L9.5 20l2.5-6l-5-2.9zm0-2a2.02 2.02 0 0 0-1.379.551L5.624 9.646a2 2 0 0 0-.61 1.686c.072.626.437 1.182.982 1.498l3.482 2.021l-1.826 4.381a2.003 2.003 0 0 0 1.847 2.77c.498 0 .993-.186 1.375-.548l7.5-7.103a2 2 0 0 0 .61-1.685a2 2 0 0 0-.982-1.498L14.52 9.15l1.789-4.293A2 2 0 0 0 14.5 2"
+      />
     </svg>
   );
 }

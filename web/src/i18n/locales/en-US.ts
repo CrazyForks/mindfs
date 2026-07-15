@@ -664,6 +664,7 @@ export const enUS = {
   "task.noInput": "No input",
   "task.openSession": "Open task session {index}",
   "task.waitingSchedule": "Waiting to schedule",
+  "task.runNow": "Run now",
   "task.collapseContent": "Collapse task content",
   "task.expandContent": "Expand task content",
   "task.nextStage": "Next stage",

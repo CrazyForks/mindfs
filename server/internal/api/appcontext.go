@@ -137,6 +137,9 @@ func (s *AppContext) GetKanbanService() (*kanban.Service, error) {
 	}
 	s.Kanban = kanban.NewService(store, s)
 	s.Kanban.SetRunner(s)
+	for _, root := range s.ListRoots() {
+		s.Kanban.Schedule(root.ID)
+	}
 	return s.Kanban, nil
 }
 

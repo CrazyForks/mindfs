@@ -371,6 +371,50 @@ func (s *Service) Next(ctx context.Context, in MoveInput) (TaskDetail, error) {
 	return detail, err
 }
 
+func (s *Service) RunNow(ctx context.Context, in MoveInput) (TaskDetail, error) {
+	store, err := s.taskStore(in.RootID)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+	task, err := store.GetTask(ctx, in.TaskID)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+	if isTerminalStatus(task.Status) {
+		return store.GetDetail(ctx, task.ID)
+	}
+	if task.Status != StatusQueued {
+		return TaskDetail{}, errors.New("task is not queued")
+	}
+	if task.SchedulerAdmitted {
+		detail, err := store.GetDetail(ctx, task.ID)
+		if err == nil {
+			s.RunTask(detail.Task.RootID, detail.Task.ID)
+		}
+		return detail, err
+	}
+	tmpl, err := s.Templates.GetTaskTemplate(task.TaskTemplateID)
+	if err != nil {
+		_ = s.recordTaskError(ctx, store, task, "", err.Error())
+		return TaskDetail{}, err
+	}
+	if err := s.admitTask(ctx, store, task, tmpl); err != nil {
+		return TaskDetail{}, err
+	}
+	_ = store.AddEvent(ctx, TaskEvent{
+		ID:        newID("event"),
+		TaskID:    task.ID,
+		Type:      "run_now",
+		Payload:   eventPayload(map[string]any{"reason": strings.TrimSpace(in.Reason)}),
+		CreatedAt: time.Now().UTC(),
+	})
+	detail, err := store.GetDetail(ctx, task.ID)
+	if err == nil {
+		s.RunTask(detail.Task.RootID, detail.Task.ID)
+	}
+	return detail, err
+}
+
 func (s *Service) Prev(ctx context.Context, in MoveInput) (TaskDetail, error) {
 	detail, err := s.moveRelative(ctx, in, -1, "user_rejected", StageStatusRejected)
 	if err == nil {
@@ -610,6 +654,7 @@ func (s *Service) schedule(ctx context.Context, rootID string) error {
 			}
 			started = true
 			s.RunTask(rootID, task.ID)
+			break
 		}
 		if !started {
 			return nil

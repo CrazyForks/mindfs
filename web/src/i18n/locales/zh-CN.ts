@@ -662,6 +662,7 @@ export const zhCN = {
   "task.noInput": "无输入",
   "task.openSession": "打开任务会话 {index}",
   "task.waitingSchedule": "等待调度",
+  "task.runNow": "立即执行",
   "task.collapseContent": "收起任务内容",
   "task.expandContent": "展开任务内容",
   "task.nextStage": "下一阶段",

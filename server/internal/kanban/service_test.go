@@ -1057,6 +1057,172 @@ func TestCompletingAdmittedTaskSchedulesNextQueuedTask(t *testing.T) {
 	}
 }
 
+func TestRunNowBypassesConcurrencySlot(t *testing.T) {
+	ctx := context.Background()
+	root := fs.NewRootInfo("root", "root", t.TempDir())
+	store := NewTemplateStoreAt(t.TempDir())
+	svc := NewService(store, testRoots{root: root})
+	svc.SetRunner(&fakeRunner{})
+	tmpl, err := store.SaveTaskTemplate(TaskTemplate{
+		Name:           "Serial Agent Flow",
+		MaxConcurrency: 1,
+		Stages: []TaskTemplateStage{{
+			Position: 0,
+			Snapshot: StageTemplate{
+				Name:        "Describe",
+				Role:        RoleUser,
+				AutoAdvance: true,
+			},
+		}, {
+			Position: 1,
+			Snapshot: StageTemplate{
+				Name:               "Fix",
+				Role:               RoleAgent,
+				Agent:              "codex",
+				Model:              "gpt-5",
+				SessionReusePolicy: SessionReuseTaskMain,
+				PromptTemplate:     "Fix this:\n{previous_input}",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveTaskTemplate: %v", err)
+	}
+	first, err := svc.CreateTask(ctx, CreateTaskInput{RootID: root.ID, TaskTemplateID: tmpl.ID, Input: "first"})
+	if err != nil {
+		t.Fatalf("CreateTask first: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		first, err = svc.GetTask(ctx, root.ID, first.Task.ID)
+		if err == nil && first.Task.Status == StatusWaitingUser && first.Task.SchedulerAdmitted {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GetTask first: %v", err)
+	}
+	if first.Task.Status != StatusWaitingUser || !first.Task.SchedulerAdmitted {
+		t.Fatalf("first task status/admitted = %s/%t, want waiting_user/true", first.Task.Status, first.Task.SchedulerAdmitted)
+	}
+	second, err := svc.CreateTask(ctx, CreateTaskInput{RootID: root.ID, TaskTemplateID: tmpl.ID, Input: "second"})
+	if err != nil {
+		t.Fatalf("CreateTask second: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	second, err = svc.GetTask(ctx, root.ID, second.Task.ID)
+	if err != nil {
+		t.Fatalf("GetTask second before run now: %v", err)
+	}
+	if second.Task.Status != StatusQueued || second.Task.SchedulerAdmitted {
+		t.Fatalf("second task status/admitted before run now = %s/%t, want queued/false", second.Task.Status, second.Task.SchedulerAdmitted)
+	}
+	if _, err := svc.RunNow(ctx, MoveInput{RootID: root.ID, TaskID: second.Task.ID}); err != nil {
+		t.Fatalf("RunNow second: %v", err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		second, err = svc.GetTask(ctx, root.ID, second.Task.ID)
+		if err == nil && second.Task.Status == StatusWaitingUser && second.Task.SchedulerAdmitted {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GetTask second after run now: %v", err)
+	}
+	if second.Task.Status != StatusWaitingUser || !second.Task.SchedulerAdmitted {
+		t.Fatalf("second task status/admitted after run now = %s/%t, want waiting_user/true", second.Task.Status, second.Task.SchedulerAdmitted)
+	}
+}
+
+func TestCancellingAdmittedTaskSchedulesNextQueuedTask(t *testing.T) {
+	ctx := context.Background()
+	root := fs.NewRootInfo("root", "root", t.TempDir())
+	store := NewTemplateStoreAt(t.TempDir())
+	svc := NewService(store, testRoots{root: root})
+	svc.SetRunner(&fakeRunner{})
+	tmpl, err := store.SaveTaskTemplate(TaskTemplate{
+		Name:           "Two Slot Agent Flow",
+		MaxConcurrency: 2,
+		Stages: []TaskTemplateStage{{
+			Position: 0,
+			Snapshot: StageTemplate{
+				Name:        "Describe",
+				Role:        RoleUser,
+				AutoAdvance: true,
+			},
+		}, {
+			Position: 1,
+			Snapshot: StageTemplate{
+				Name:               "Fix",
+				Role:               RoleAgent,
+				Agent:              "codex",
+				Model:              "gpt-5",
+				SessionReusePolicy: SessionReuseTaskMain,
+				PromptTemplate:     "Fix this:\n{previous_input}",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveTaskTemplate: %v", err)
+	}
+	first, err := svc.CreateTask(ctx, CreateTaskInput{RootID: root.ID, TaskTemplateID: tmpl.ID, Input: "first", CreateWorktree: true})
+	if err != nil {
+		t.Fatalf("CreateTask first: %v", err)
+	}
+	second, err := svc.CreateTask(ctx, CreateTaskInput{RootID: root.ID, TaskTemplateID: tmpl.ID, Input: "second", CreateWorktree: true})
+	if err != nil {
+		t.Fatalf("CreateTask second: %v", err)
+	}
+	third, err := svc.CreateTask(ctx, CreateTaskInput{RootID: root.ID, TaskTemplateID: tmpl.ID, Input: "third", CreateWorktree: true})
+	if err != nil {
+		t.Fatalf("CreateTask third: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		first, _ = svc.GetTask(ctx, root.ID, first.Task.ID)
+		second, _ = svc.GetTask(ctx, root.ID, second.Task.ID)
+		third, err = svc.GetTask(ctx, root.ID, third.Task.ID)
+		if err == nil &&
+			first.Task.Status == StatusWaitingUser && first.Task.SchedulerAdmitted &&
+			second.Task.Status == StatusWaitingUser && second.Task.SchedulerAdmitted &&
+			third.Task.Status == StatusQueued && !third.Task.SchedulerAdmitted {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GetTask third before cancel: %v", err)
+	}
+	if first.Task.Status != StatusWaitingUser || !first.Task.SchedulerAdmitted ||
+		second.Task.Status != StatusWaitingUser || !second.Task.SchedulerAdmitted ||
+		third.Task.Status != StatusQueued || third.Task.SchedulerAdmitted {
+		t.Fatalf("before cancel statuses: first=%s/%t second=%s/%t third=%s/%t",
+			first.Task.Status, first.Task.SchedulerAdmitted,
+			second.Task.Status, second.Task.SchedulerAdmitted,
+			third.Task.Status, third.Task.SchedulerAdmitted)
+	}
+	if _, err := svc.Cancel(ctx, MoveInput{RootID: root.ID, TaskID: first.Task.ID}); err != nil {
+		t.Fatalf("Cancel first: %v", err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		third, err = svc.GetTask(ctx, root.ID, third.Task.ID)
+		if err == nil && third.Task.Status == StatusWaitingUser && third.Task.SchedulerAdmitted {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GetTask third after cancel: %v", err)
+	}
+	if third.Task.Status != StatusWaitingUser || !third.Task.SchedulerAdmitted {
+		t.Fatalf("third task status/admitted after cancel = %s/%t, want waiting_user/true", third.Task.Status, third.Task.SchedulerAdmitted)
+	}
+}
+
 func containsAll(value string, parts []string) bool {
 	for _, part := range parts {
 		if !strings.Contains(value, part) {

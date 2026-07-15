@@ -228,6 +228,10 @@ func (h *HTTPHandler) handleKanbanTaskNext(w http.ResponseWriter, r *http.Reques
 	h.handleKanbanTaskMove(w, r, "next")
 }
 
+func (h *HTTPHandler) handleKanbanTaskRunNow(w http.ResponseWriter, r *http.Request) {
+	h.handleKanbanTaskMove(w, r, "run-now")
+}
+
 func (h *HTTPHandler) handleKanbanTaskPrev(w http.ResponseWriter, r *http.Request) {
 	h.handleKanbanTaskMove(w, r, "prev")
 }
@@ -275,6 +279,8 @@ func (h *HTTPHandler) handleKanbanTaskMove(w http.ResponseWriter, r *http.Reques
 	switch action {
 	case "next":
 		detail, err = svc.Next(r.Context(), in)
+	case "run-now":
+		detail, err = svc.RunNow(r.Context(), in)
 	case "prev":
 		detail, err = svc.Prev(r.Context(), in)
 	case "jump":
