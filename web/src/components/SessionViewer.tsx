@@ -567,6 +567,15 @@ function getAskUserAnswers(toolCall: Partial<ToolCall>): Record<string, string> 
   return answers;
 }
 
+function askUserQuestionTitle(question?: AskUserQuestionItem): string {
+  const questionText = `${question?.question || ""}`.trim();
+  const header = `${question?.header || ""}`.trim();
+  if (header && questionText) {
+    return `${header}：${questionText}`;
+  }
+  return questionText || header;
+}
+
 function AskUserIcon() {
   return (
     <svg
@@ -644,16 +653,11 @@ function AskUserQuestionCard({
   const hasPersistedAnswers = Object.keys(persistedAnswers).length > 0;
   const [answers, setAnswers] = useState<Record<string, string>>(persistedAnswers);
   const [submitted, setSubmitted] = useState(hasPersistedAnswers);
-  const firstQuestion = questions[0] || {};
-  const questionTitle = `${firstQuestion.question || ""}`.trim();
-  const questionHeader = `${firstQuestion.header || ""}`.trim();
+  const firstQuestionTitle = askUserQuestionTitle(questions[0]);
   const title =
-    questionHeader && questionTitle
-      ? `${questionHeader}：${questionTitle}`
-      : questionTitle ||
+    firstQuestionTitle ||
     `${toolCall.title || ""}`.trim() ||
     (typeof toolCall.meta?.title === "string" ? toolCall.meta.title : "") ||
-    questionHeader ||
     "ask user";
   const canSubmit =
     !!rootId &&
@@ -730,6 +734,7 @@ function AskUserQuestionCard({
           gap: "6px",
           minWidth: 0,
         }}
+        title={title}
       >
         <AskUserIcon />
         <span
@@ -738,10 +743,12 @@ function AskUserQuestionCard({
             flex: 1,
             fontWeight: 500,
             color: "var(--text-primary)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            whiteSpace: expanded ? "normal" : "nowrap",
+            overflow: expanded ? "visible" : "hidden",
+            textOverflow: expanded ? "clip" : "ellipsis",
             textAlign: "left",
+            overflowWrap: "anywhere",
+            lineHeight: 1.35,
           }}
         >
           {title}
@@ -791,8 +798,22 @@ function AskUserQuestionCard({
             const customAnswer = hasOptionSelection ? "" : selected;
             const customAnswerActive =
               customAnswer.trim() !== "" || focusedCustomAnswerKey === key;
+            const itemTitle = askUserQuestionTitle(question);
             return (
               <div key={key} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {itemTitle ? (
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "var(--text-primary)",
+                      lineHeight: 1.45,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {itemTitle}
+                  </div>
+                ) : null}
                 {options.length > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                     {options.map((option) => {
