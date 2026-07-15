@@ -31,6 +31,7 @@ type SessionActivityBroadcaster interface {
 	BroadcastSessionUpdate(rootID, sessionKey string, update agenttypes.Event)
 	BroadcastSessionError(rootID, sessionKey, message string)
 	BroadcastSessionDone(rootID, sessionKey, requestID string)
+	BroadcastAgentStatusChanged(agentName string)
 	BroadcastScheduledTaskDone(rootID, taskID, taskName, sessionKey, summary string)
 	BroadcastScheduledTaskFailed(rootID, taskID, taskName, sessionKey, message string)
 }
@@ -494,6 +495,9 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 		},
 		OnUpdate: func(update agenttypes.Event) {
 			broadcaster.BroadcastSessionUpdate(current.RootID, sessionKey, update)
+		},
+		OnAgentDefaultsChanged: func(agentName string) {
+			broadcaster.BroadcastAgentStatusChanged(agentName)
 		},
 		OnSubSessionCreated: func(created *session.Session) {
 			broadcaster.BroadcastSessionMetaUpdated(current.RootID, created)

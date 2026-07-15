@@ -290,6 +290,9 @@ func (s *AppContext) RunAgentStage(ctx context.Context, exec kanban.AgentStageEx
 			defer updateTracker.End()
 			s.BroadcastSessionUpdate(exec.RootID, sessionKey, update)
 		},
+		OnAgentDefaultsChanged: func(agentName string) {
+			s.BroadcastAgentStatusChanged(agentName)
+		},
 		OnSubSessionCreated: func(created *session.Session) {
 			s.BroadcastSessionMetaUpdated(exec.RootID, created)
 			if created != nil {
@@ -684,6 +687,49 @@ func (s *AppContext) BroadcastSessionMetaUpdated(rootID string, sess *session.Se
 				"plan_mode":           sess.PlanMode,
 				"updated_at":          sess.UpdatedAt,
 			},
+		},
+	})
+}
+
+func (s *AppContext) BroadcastAgentStatusChanged(agentName string) {
+	agentName = strings.TrimSpace(agentName)
+	if s == nil || agentName == "" || s.GetProber() == nil {
+		return
+	}
+	status, ok := s.GetProber().GetStatus(agentName)
+	if !ok {
+		return
+	}
+	statuses := []agent.Status{status}
+	if prefs := s.GetPreferences(); prefs != nil {
+		statuses = prefs.ApplyAgentDefaults(statuses)
+	}
+	status = applyAgentAPIProviderCapabilities(statuses)[0]
+	s.GetSessionStreamHub().BroadcastAll(WSResponse{
+		Type: "agent.status.changed",
+		Payload: map[string]any{
+			"name":                             status.Name,
+			"protocol":                         status.Protocol,
+			"installed":                        status.Installed,
+			"available":                        status.Available,
+			"version":                          status.Version,
+			"error":                            status.Error,
+			"last_probe":                       status.LastProbe,
+			"current_model_id":                 status.CurrentModelID,
+			"current_mode_id":                  status.CurrentModeID,
+			"default_model_id":                 status.DefaultModelID,
+			"default_effort":                   status.DefaultEffort,
+			"default_fast_service":             status.DefaultFastService,
+			"supports_api_provider_switch":     status.SupportsAPIProviderSwitch,
+			"supported_api_provider_protocols": status.SupportedAPIProviderProtocols,
+			"supports_fast_service":            status.SupportsFastService,
+			"efforts":                          status.Efforts,
+			"models":                           status.Models,
+			"modes":                            status.Modes,
+			"models_error":                     status.ModelsError,
+			"modes_error":                      status.ModesError,
+			"commands":                         status.Commands,
+			"commands_error":                   status.CommandsError,
 		},
 	})
 }

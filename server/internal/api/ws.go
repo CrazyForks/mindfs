@@ -869,6 +869,9 @@ func (h *WSHandler) runSessionMessage(job sessionMessageJob) {
 			}
 			h.AppContext.BroadcastSessionUpdate(rootID, key, update)
 		},
+		OnAgentDefaultsChanged: func(agentName string) {
+			h.AppContext.BroadcastAgentStatusChanged(agentName)
+		},
 		OnSubSessionCreated: func(created *session.Session) {
 			h.broadcastSessionMetaUpdated(rootID, created)
 			if created != nil {

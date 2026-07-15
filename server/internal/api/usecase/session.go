@@ -1033,23 +1033,24 @@ func prependSwitchHint(in BuildPromptInput, prompt string) string {
 }
 
 type SendMessageInput struct {
-	RootID              string
-	RuntimeRootPath     string
-	Key                 string
-	Agent               string
-	Model               string
-	Mode                string
-	Effort              string
-	FastService         string
-	PlanMode            *bool
-	Shell               string
-	TerminalCols        int
-	Content             string
-	ClientCtx           ClientContext
-	OnStart             func()
-	OnUpdate            func(agenttypes.Event)
-	OnSubSessionCreated func(*session.Session)
-	OnSubSessionUpdate  func(sessionKey string, update agenttypes.Event)
+	RootID                 string
+	RuntimeRootPath        string
+	Key                    string
+	Agent                  string
+	Model                  string
+	Mode                   string
+	Effort                 string
+	FastService            string
+	PlanMode               *bool
+	Shell                  string
+	TerminalCols           int
+	Content                string
+	ClientCtx              ClientContext
+	OnStart                func()
+	OnUpdate               func(agenttypes.Event)
+	OnSubSessionCreated    func(*session.Session)
+	OnSubSessionUpdate     func(sessionKey string, update agenttypes.Event)
+	OnAgentDefaultsChanged func(agentName string)
 }
 
 type RunTransientSlashCommandInput struct {
@@ -2195,6 +2196,9 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) error {
 			log.Printf("[preferences] agent_defaults.update.error agent=%s err=%v", strings.TrimSpace(in.Agent), err)
 		} else if changed {
 			log.Printf("[preferences] agent_defaults.update.done agent=%s model=%q effort=%q fast_service=%q", strings.TrimSpace(in.Agent), resolvedModel, resolvedEffort, resolvedFastService)
+			if in.OnAgentDefaultsChanged != nil {
+				in.OnAgentDefaultsChanged(strings.TrimSpace(in.Agent))
+			}
 		}
 	}
 	if err := manager.UpdateModel(ctx, current, resolvedModel); err != nil {
