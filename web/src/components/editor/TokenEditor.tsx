@@ -6,6 +6,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
   $createTextNode,
+  $getNearestNodeFromDOMNode,
   $getRoot,
   $getSelection,
   $isLineBreakNode,
@@ -102,6 +103,7 @@ class TokenNode extends TextNode {
 
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
+    dom.dataset.mindfsTokenNode = "true";
     dom.contentEditable = "false";
     dom.style.display = "inline-flex";
     dom.style.alignItems = "center";
@@ -191,7 +193,7 @@ function serializeEditor(): string {
     if ($isTokenNode(node)) {
       parts.push(
         node.getTokenType() === "file"
-          ? `[read file: ${node.getTokenValue()}]`
+          ? `[file: ${node.getTokenValue()}]`
           : `[use skill: ${node.getTokenValue()}]`
       );
       return;
@@ -212,6 +214,73 @@ function serializeEditor(): string {
   };
   visit($getRoot());
   return parts.join("");
+}
+
+function $insertSerializedTextAtSelection(text: string): boolean {
+  if (text === "") {
+    return false;
+  }
+  const pattern = /\[(read file|file|use skill):\s*([^\]]+)\]/g;
+  let lastIndex = 0;
+  let inserted = false;
+  let match: RegExpExecArray | null;
+
+  const insertToken = (type: TokenType, value: string): boolean => {
+    let selection = $getSelection();
+    if (!$isRangeSelection(selection)) {
+      $getRoot().selectEnd();
+      selection = $getSelection();
+    }
+    if (!$isRangeSelection(selection)) {
+      return false;
+    }
+    selection.insertNodes([$createTokenNode(type, value, createLabel(type, value))]);
+    return true;
+  };
+
+  while ((match = pattern.exec(text)) !== null) {
+    const prefix = text.slice(lastIndex, match.index);
+    if (prefix) {
+      inserted = $insertPlainTextAtSelection(prefix) || inserted;
+    }
+    const tokenType: TokenType = match[1] === "use skill" ? "skill" : "file";
+    const tokenValue = match[2].trim();
+    if (tokenValue) {
+      inserted = insertToken(tokenType, tokenValue) || inserted;
+    }
+    lastIndex = pattern.lastIndex;
+  }
+
+  const suffix = text.slice(lastIndex);
+  if (suffix) {
+    inserted = $insertPlainTextAtSelection(suffix) || inserted;
+  }
+  return inserted;
+}
+
+function serializedTextEndsWithToken(text: string): boolean {
+  return /\[(?:read file|file|use skill):\s*[^\]]+\]\s*$/.test(text);
+}
+
+function $selectAfterTokenNode(node: TokenNode): void {
+  const next = node.getNextSibling();
+  if ($isTextNode(next) && !$isTokenNode(next)) {
+    next.select(next.getTextContentSize(), next.getTextContentSize());
+    return;
+  }
+  const anchor = $createTextNode(" ");
+  node.insertAfter(anchor);
+  anchor.select(1, 1);
+}
+
+function $selectEditorEndWithTokenAnchor(): void {
+  const root = $getRoot();
+  const lastChild = root.getLastChild();
+  if ($isTokenNode(lastChild)) {
+    $selectAfterTokenNode(lastChild);
+    return;
+  }
+  root.selectEnd();
 }
 
 function getDisplayText(): string {
@@ -378,6 +447,19 @@ function $replaceWithPlainText(text: string): void {
   $getRoot().selectEnd();
 }
 
+function $replaceWithSerializedText(text: string): void {
+  const root = $getRoot();
+  root.clear();
+  root.selectEnd();
+  if (text !== "") {
+    $insertSerializedTextAtSelection(text);
+    if (serializedTextEndsWithToken(text)) {
+      $insertPlainTextAtSelection(" ");
+    }
+  }
+  $getRoot().selectEnd();
+}
+
 function EditorBridge({
   onChange,
   onReady,
@@ -400,6 +482,43 @@ function EditorBridge({
       onReady({ editor, root: rootRef.current });
     });
   }, [editor, onReady]);
+
+  useEffect(() => {
+    if (!rootElement) {
+      return;
+    }
+    const handleTokenPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const tokenElement = target.closest<HTMLElement>("[data-mindfs-token-node='true']");
+      if (tokenElement && rootElement.contains(tokenElement)) {
+        event.preventDefault();
+        event.stopPropagation();
+        rootElement.focus({ preventScroll: true });
+        editor.update(() => {
+          const node = $getNearestNodeFromDOMNode(tokenElement);
+          if ($isTokenNode(node)) {
+            $selectAfterTokenNode(node);
+          }
+        });
+        return;
+      }
+      if (target !== rootElement) {
+        return;
+      }
+      event.preventDefault();
+      rootElement.focus({ preventScroll: true });
+      editor.update(() => {
+        $selectEditorEndWithTokenAnchor();
+      });
+    };
+    rootElement.addEventListener("pointerdown", handleTokenPointerDown, { capture: true });
+    return () => {
+      rootElement.removeEventListener("pointerdown", handleTokenPointerDown, { capture: true });
+    };
+  }, [editor, rootElement]);
 
   useEffect(() => {
     if (!rootElement) {
@@ -561,7 +680,7 @@ const TokenEditor = forwardRef<TokenEditorHandle, TokenEditorProps>(function Tok
     },
     setText(value: string) {
       editorRef.current?.update(() => {
-        $replaceWithPlainText(value);
+        $replaceWithSerializedText(value);
       });
       rootRef.current?.focus({ preventScroll: true });
     },

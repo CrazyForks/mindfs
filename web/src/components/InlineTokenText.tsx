@@ -13,14 +13,14 @@ function basename(path: string): string {
 
 function parseTokenText(content: string): TokenPart[] {
   const parts: TokenPart[] = [];
-  const pattern = /\[(read file|use skill):\s*([^\]]+)\]/g;
+  const pattern = /\[(read file|file|use skill):\s*([^\]]+)\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     if (match.index > lastIndex) {
       parts.push({ type: "text", value: content.slice(lastIndex, match.index) });
     }
-    const kind = match[1] === "read file" ? "file" : "skill";
+    const kind = match[1] === "use skill" ? "skill" : "file";
     parts.push({ type: kind, value: match[2].trim() });
     lastIndex = pattern.lastIndex;
   }

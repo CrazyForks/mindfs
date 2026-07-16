@@ -110,6 +110,7 @@ import { SessionViewer } from "./components/SessionViewer";
 import { DefaultListView, type MainContentViewMode } from "./components/DefaultListView";
 import { MultiProjectSessionList, SessionList, type ProjectSessionGroup } from "./components/SessionList";
 import { ExternalSessionList } from "./components/ExternalSessionList";
+import { InlineTokenText } from "./components/InlineTokenText";
 import { AgentIcon } from "./components/AgentIcon";
 import { AgentMenuList } from "./components/AgentMenuList";
 import { ActionBar } from "./components/ActionBar";
@@ -608,7 +609,7 @@ const GIT_HISTORY_EXPANDED_STORAGE_KEY = "mindfs-git-history-expanded";
 const TASK_TEMPLATE_SELECTION_STORAGE_KEY = "mindfs-task-template-selection";
 const TASK_TEMPLATE_ALL_FILTER = "__all__";
 const CANDIDATE_FETCH_DEBOUNCE_MS = 512;
-const READ_FILE_TOKEN_PATTERN = /\[read file:\s*[^\]]+\]/i;
+const FILE_TOKEN_PATTERN = /\[(?:read file|file):\s*[^\]]+\]/i;
 
 function normalizeUpdateState(
   input: UpdateState | null | undefined,
@@ -1312,7 +1313,7 @@ function normalizeTokenStationAPIKey(value: string): string {
 }
 
 function hasExplicitFileContext(message: string): boolean {
-  return READ_FILE_TOKEN_PATTERN.test(message);
+  return FILE_TOKEN_PATTERN.test(message);
 }
 
 // Hook for responsive detection
@@ -1564,6 +1565,7 @@ export function App({ onGoHome }: AppProps) {
   const [taskTemplateConcurrencyOpen, setTaskTemplateConcurrencyOpen] = useState(false);
   const [taskCreateTemplateMenuOpen, setTaskCreateTemplateMenuOpen] = useState(false);
   const taskInlineEditorRef = useRef<TokenEditorHandle | null>(null);
+  const taskInlineCandidateItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const taskInlineAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const taskInlineUploadAbortRef = useRef<AbortController | null>(null);
   const directoryUploadAbortRef = useRef<AbortController | null>(null);
@@ -2022,6 +2024,15 @@ export function App({ onGoHome }: AppProps) {
     taskInlineEditorRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (taskInlineCandidates.length === 0) {
+      taskInlineCandidateItemRefs.current = [];
+      return;
+    }
+    const activeItem = taskInlineCandidateItemRefs.current[taskInlineCandidateIndex];
+    activeItem?.scrollIntoView({ block: "nearest" });
+  }, [taskInlineCandidates, taskInlineCandidateIndex]);
+
   const appendTaskInlineAttachments = useCallback((files: File[]) => {
     if (files.length === 0) return;
     setTaskInlineEdit((prev) => {
@@ -2135,7 +2146,7 @@ export function App({ onGoHome }: AppProps) {
           onProgress: setTaskInlineUploadProgress,
           signal: uploadAbort.signal,
         });
-        attachmentTokens = uploaded.map((file) => `[read file: ${file.path}]`).join("\n");
+        attachmentTokens = uploaded.map((file) => `[file: ${file.path}]`).join("\n");
       }
       const payload = [edit.text.trim(), attachmentTokens].filter(Boolean).join("\n");
       const taskCanCreateWorktree = managedRootByIdRef.current[rootId]?.is_git_repo === true;
@@ -2164,6 +2175,47 @@ export function App({ onGoHome }: AppProps) {
       taskInlineUploadAbortRef.current = null;
     }
   }, [applyTaskDetails, closeTaskEditDialog, taskInlineEdit, t]);
+
+  const handleTaskInlineEditorKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (taskInlineCandidates.length === 0) {
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setTaskInlineCandidateIndex((prev) => (prev + 1) % taskInlineCandidates.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setTaskInlineCandidateIndex((prev) => (prev - 1 + taskInlineCandidates.length) % taskInlineCandidates.length);
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      applyTaskInlineCandidate(taskInlineCandidates[taskInlineCandidateIndex] || taskInlineCandidates[0]);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setTaskInlineCandidates([]);
+      setTaskInlineCandidateIndex(0);
+    }
+  }, [applyTaskInlineCandidate, taskInlineCandidates, taskInlineCandidateIndex]);
+
+  const handleTaskInlineEditorEnter = useCallback((event: KeyboardEvent | null) => {
+    if (event?.shiftKey) {
+      return false;
+    }
+    if (taskInlineCandidates.length > 0) {
+      event?.preventDefault();
+      event?.stopPropagation();
+      applyTaskInlineCandidate(taskInlineCandidates[taskInlineCandidateIndex] || taskInlineCandidates[0]);
+      return true;
+    }
+    void saveTaskInlineEdit();
+    return true;
+  }, [applyTaskInlineCandidate, saveTaskInlineEdit, taskInlineCandidates, taskInlineCandidateIndex]);
 
   useEffect(() => {
     try {
@@ -12379,7 +12431,7 @@ export function App({ onGoHome }: AppProps) {
                             {!isAllTaskTemplateFilter && taskNumberLabel ? (
                               <span style={{ color: "#0ea5e9", fontWeight: 800, marginRight: "6px" }}>{taskNumberLabel}</span>
                             ) : null}
-                            <span>{firstInput || t("task.noInput")}</span>
+                            {firstInput ? <InlineTokenText content={firstInput} /> : <span>{t("task.noInput")}</span>}
                           </div>
                         </div>
                         <div style={{ marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "4px" }}>
@@ -14006,6 +14058,9 @@ export function App({ onGoHome }: AppProps) {
                   {taskInlineCandidates.map((candidate, index) => (
                     <button
                       key={`${candidate.type}:${candidate.name}`}
+                      ref={(node) => {
+                        taskInlineCandidateItemRefs.current[index] = node;
+                      }}
                       type="button"
                       onMouseDown={(event) => {
                         event.preventDefault();
@@ -14077,7 +14132,7 @@ export function App({ onGoHome }: AppProps) {
                           color: "var(--text-color)",
                         }}
                       >
-                        {item.input}
+                        <InlineTokenText content={item.input} />
                       </div>
                     </div>
                   ))}
@@ -14115,11 +14170,8 @@ export function App({ onGoHome }: AppProps) {
                       }
                     }}
                     onPaste={handleTaskInlinePaste}
-                    onEnter={(event) => {
-                      if (event && (event as KeyboardEvent).shiftKey) return false;
-                      void saveTaskInlineEdit();
-                      return true;
-                    }}
+                    onKeyDown={handleTaskInlineEditorKeyDown}
+                    onEnter={handleTaskInlineEditorEnter}
                   />
                 </div>
                 <button

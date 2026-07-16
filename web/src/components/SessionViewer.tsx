@@ -162,7 +162,7 @@ function AttachmentImage({
   );
 }
 
-const uploadTokenPattern = /\[read file:\s*([^\]]+)\]/g;
+const uploadTokenPattern = /\[(?:read file|file):\s*([^\]]+)\]/g;
 
 function basename(path: string): string {
   const normalized = (path || "").replace(/\\/g, "/");
