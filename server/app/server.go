@@ -19,6 +19,7 @@ import (
 	"mindfs/server/internal/fs"
 	"mindfs/server/internal/githubimport"
 	"mindfs/server/internal/gitview"
+	"mindfs/server/internal/kanban"
 	"mindfs/server/internal/notifyscript"
 	"mindfs/server/internal/preferences"
 	"mindfs/server/internal/relay"
@@ -128,6 +129,12 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	}
 	services.Scheduled = scheduled.NewService(services, services)
 	services.Scheduled.Start(ctx)
+	taskTemplates, err := kanban.NewTemplateStore()
+	if err != nil {
+		return err
+	}
+	services.Kanban = kanban.NewService(taskTemplates, services)
+	services.Kanban.SetRunner(services)
 	githubImportSvc, err := githubimport.NewService(services)
 	if err != nil {
 		return err
@@ -172,6 +179,9 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 		return err
 	}
 	services.RelayTips.Start(ctx)
+	for _, root := range services.ListRoots() {
+		services.Kanban.Schedule(root.ID)
+	}
 
 	go func() {
 		<-ctx.Done()

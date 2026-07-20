@@ -126,21 +126,13 @@ func (s *AppContext) GetKanbanService() (*kanban.Service, error) {
 	if s == nil {
 		return nil, errors.New("app context required")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.Kanban != nil {
-		return s.Kanban, nil
+	s.mu.RLock()
+	service := s.Kanban
+	s.mu.RUnlock()
+	if service == nil {
+		return nil, errors.New("kanban service not configured")
 	}
-	store, err := kanban.NewTemplateStore()
-	if err != nil {
-		return nil, err
-	}
-	s.Kanban = kanban.NewService(store, s)
-	s.Kanban.SetRunner(s)
-	for _, root := range s.ListRoots() {
-		s.Kanban.Schedule(root.ID)
-	}
-	return s.Kanban, nil
+	return service, nil
 }
 
 func (s *AppContext) CreateTaskWorktree(ctx context.Context, rootID, name, branchMode, branch string) (kanban.WorktreeInfo, error) {
